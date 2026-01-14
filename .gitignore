@@ -1,0 +1,13 @@
+.vscode/settings.json
+data/
+mvc_del_mempool_height.txt
+man_base_data_pebble/
+config_mvc.toml
+manindexer
+.DS_Store
+pev_data_pebble/
+user_operation_data/
+sync_data.db
+pebble_data/
+config.toml
+config_regtest.toml
