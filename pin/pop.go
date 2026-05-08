@@ -18,6 +18,8 @@ func PopLevelCount(chainName, pop string) (lv int, lastStr string) {
 		PopCutNum = common.Config.Btc.PopCutNum
 	case "mvc":
 		PopCutNum = common.Config.Mvc.PopCutNum
+	case "opcat":
+		PopCutNum = common.Config.Opcat.PopCutNum
 	}
 	if len(pop) < PopCutNum {
 		lv = -1
@@ -42,6 +44,8 @@ func RarityScoreBinary(chainName, binaryStr string) int {
 		popCutNum = common.Config.Btc.PopCutNum
 	case "mvc":
 		popCutNum = common.Config.Mvc.PopCutNum
+	case "opcat":
+		popCutNum = common.Config.Opcat.PopCutNum
 	}
 	if len(binaryStr) < popCutNum {
 		return 0

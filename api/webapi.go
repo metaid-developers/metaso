@@ -405,7 +405,7 @@ type txMsgInput struct {
 func tx(ctx *gin.Context) {
 	txid := ctx.Param("txid")
 	chain := ctx.Param("chain")
-	if chain != "btc" && chain != "mvc" {
+	if chain != "btc" && chain != "mvc" && chain != "opcat" {
 		ctx.String(200, "fail")
 		return
 	}

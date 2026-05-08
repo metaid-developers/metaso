@@ -6,6 +6,7 @@ import (
 	"manindexer/adapter"
 	"manindexer/adapter/bitcoin"
 	"manindexer/adapter/microvisionchain"
+	"manindexer/adapter/opcat"
 	"manindexer/common"
 
 	"net/http"
@@ -156,6 +157,20 @@ func InitAdapter(chainType, dbType, test, server string) {
 			// 	Mrc20HeightLimit[chain] = int64(581676)
 			// }
 			Mrc20HeightLimit[chain] = int64(86500)
+			}
+		case "opcat":
+			ChainAdapter[chain] = &opcat.OpcatChain{}
+			IndexerAdapter[chain] = &opcat.Indexer{
+				ChainParams: ChainParams[chain],
+				PopCutNum:   common.Config.Opcat.PopCutNum,
+				DbAdapter:   &DbAdapter,
+				ChainName:   chain,
+			}
+			if common.Config.Opcat.Mrc20Height < 0 {
+				Mrc20HeightLimit[chain] = int64(^uint64(0) >> 1)
+			} else {
+				Mrc20HeightLimit[chain] = common.Config.Opcat.Mrc20Height
+			}
 		}
 		ChainAdapter[chain].InitChain()
 		IndexerAdapter[chain].InitIndexer()
@@ -336,15 +351,19 @@ func getSyncHeight(chainName string, test string) (from, to int64) {
 			initialHeight = int64(86500)
 		} else if chainName == "btc" {
 			initialHeight = int64(844446)
+		} else if chainName == "opcat" {
+			initialHeight = int64(0)
 		}
 	} else {
 		initialHeight = ChainAdapter[chainName].GetInitialHeight()
 	}
 	btcLastBlockHeight, _ := mongodb.GetSyncLastNumber("btcChainSyncHeight")
 	mvcLastBlockHeight, _ := mongodb.GetSyncLastNumber("mvcChainSyncHeight")
+	opcatLastBlockHeight, _ := mongodb.GetSyncLastNumber("opcatChainSyncHeight")
 	dbLast := make(map[string]int64)
 	dbLast["btc"] = btcLastBlockHeight
 	dbLast["mvc"] = mvcLastBlockHeight
+	dbLast["opcat"] = opcatLastBlockHeight
 	if MaxHeight[chainName] <= 0 {
 		MaxHeight[chainName] = dbLast[chainName]
 		// var err error
@@ -396,6 +415,9 @@ func IndexerRun(test string) {
 			}
 			if chainName == "mvc" {
 				mongodb.UpdateSyncLastNumber("mvcChainSyncHeight", i)
+			}
+			if chainName == "opcat" {
+				mongodb.UpdateSyncLastNumber("opcatChainSyncHeight", i)
 			}
 		}
 		// step := to - from

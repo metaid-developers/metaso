@@ -26,6 +26,26 @@ rpcHttpPostMode = true
 rpcDisableTLS = true
 zmqHost = "tcp://127.0.0.1:28336"
 popCutNum = 21
+[mvc]
+initialHeight = 86500
+mrc20Height = 0
+rpcHost = "127.0.0.1:9882"
+rpcUser = "test"
+rpcPass = "test"
+rpcHttpPostMode = true
+rpcDisableTLS = true
+zmqHost = "tcp://127.0.0.1:28337"
+popCutNum = 21
+[opcat]
+initialHeight = 120418
+mrc20Height = -1
+rpcHost = "34.92.196.81:18443"
+rpcUser = "scrypt"
+rpcPass = "W4iULFuKidPY6wCv"
+rpcHttpPostMode = true
+rpcDisableTLS = true
+zmqHost = "tcp://34.92.196.81:18442"
+popCutNum = 21
 [mongodb]
 mongoURI = "mongodb://root:123456@127.0.0.1:27017"
 dbName = "man_test"
