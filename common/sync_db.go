@@ -1,12 +1,16 @@
 package common
 
 import (
+	"errors"
+
 	bolt "go.etcd.io/bbolt"
 )
 
 const bucketName = "SyncData"
 
 var db *bolt.DB
+
+var ErrSyncDBNotInitialized = errors.New("sync db not initialized")
 
 // 初始化数据库
 func InitSyncDB() (err error) {
@@ -29,6 +33,9 @@ func InitSyncDB() (err error) {
 
 // 保存数据
 func SaveToDictDB(key string, value []byte) error {
+	if db == nil {
+		return ErrSyncDBNotInitialized
+	}
 	return db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		return b.Put([]byte(key), value)
@@ -37,6 +44,9 @@ func SaveToDictDB(key string, value []byte) error {
 
 // 从数据库加载数据
 func LoadFromDictDB(key string) ([]byte, error) {
+	if db == nil {
+		return nil, ErrSyncDBNotInitialized
+	}
 	var data []byte
 	err := db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))

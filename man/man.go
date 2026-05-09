@@ -46,6 +46,7 @@ var (
 )
 
 const DefaultBatchSize = 1000
+const MempoolCleanupSafetyWindow int64 = 1000
 const (
 	StatusBlockHeightLower      = -101
 	StatusPinIsTransfered       = -102
@@ -157,7 +158,6 @@ func InitAdapter(chainType, dbType, test, server string) {
 			// 	Mrc20HeightLimit[chain] = int64(581676)
 			// }
 			Mrc20HeightLimit[chain] = int64(86500)
-			}
 		case "opcat":
 			ChainAdapter[chain] = &opcat.OpcatChain{}
 			IndexerAdapter[chain] = &opcat.Indexer{
@@ -329,13 +329,40 @@ func CheckNewBlock() {
 		if localLastHeight >= bestHeight {
 			continue
 		}
-		for i := localLastHeight; i <= bestHeight; i++ {
+		startHeight := clampMempoolCleanupHeight(localLastHeight, bestHeight, MempoolCleanupSafetyWindow)
+		if startHeight > localLastHeight {
+			log.Printf("mempool cleanup cursor clamped, chain=%s, from=%d, to=%d, best=%d", k, localLastHeight, startHeight, bestHeight)
+		}
+		for i := startHeight; i <= bestHeight; i++ {
 			log.Printf("DeleteMempoolData, chain=%s, height=%d", k, i)
 			DeleteMempoolData(i, k)
 			mongodb.UpdateSyncLastNumber(sk, i)
 			//common.UpdateLocalLastHeight(fmt.Sprintf("./%s_del_mempool_height.txt", k), i)
 		}
 	}
+}
+
+func clampMempoolCleanupHeight(current, bestHeight, safetyWindow int64) int64 {
+	if current <= 0 {
+		return 0
+	}
+	if bestHeight <= 0 {
+		return current
+	}
+	if safetyWindow < 0 {
+		safetyWindow = 0
+	}
+	start := bestHeight - safetyWindow
+	if start < 0 {
+		start = 0
+	}
+	if current < start {
+		return start
+	}
+	if current > bestHeight {
+		return bestHeight
+	}
+	return current
 }
 func DeleteMempoolData(bestHeight int64, chainName string) {
 	txList, pinIdList := IndexerAdapter[chainName].GetBlockTxHash(bestHeight)

@@ -21,6 +21,17 @@ type PebbleData struct {
 	Database *pebblestore.Database
 }
 
+type indexedPinsWriter interface {
+	BatchAddPins(pins []interface{}) error
+}
+
+func writeIndexedPins(writer indexedPinsWriter, pinList []interface{}) error {
+	if len(pinList) == 0 {
+		return nil
+	}
+	return writer.BatchAddPins(pinList)
+}
+
 func (pd *PebbleData) Init(shardNum int) (err error) {
 	dbPath := filepath.Join("./man_base_data_pebble")
 	err = os.MkdirAll(dbPath, 0755)
@@ -60,7 +71,9 @@ func (pd *PebbleData) DoIndexerRun(chainName string, height int64, reIndex bool)
 	log.Println("BatchUpsertMetaIdInfo:", time.Since(startTime))
 	var pinNodeList []*pin.PinInscription
 	if len(pinList) > 0 {
-		//DbAdapter.BatchAddPins(pinList)
+		if err = writeIndexedPins(DbAdapter, pinList); err != nil {
+			return err
+		}
 		// if err := batchProcessPins(pinList, DefaultBatchSize); err != nil {
 		// 	return fmt.Errorf("failed to process pins: %v", err)
 		// }

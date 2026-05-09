@@ -59,13 +59,9 @@ func (mg *Mongodb) BatchAddPins(pins []interface{}) (err error) {
 		if len(operations) == 500 {
 			_, err := mongoClient.Collection(PinsCollection).BulkWrite(context.TODO(), operations, opts)
 			if err != nil {
-				if bulkErr, ok := err.(mongo.BulkWriteException); ok {
-					for _, writeErr := range bulkErr.WriteErrors {
-						if writeErr.Code == 11000 {
-							continue
-						}
-						log.Printf("BatchAddPins err: %v", writeErr)
-					}
+				if filteredErr := ignoreDuplicateKeyBulkWriteError(err); filteredErr != nil {
+					log.Printf("BatchAddPins err: %v", filteredErr)
+					return filteredErr
 				}
 			}
 			operations = operations[:0]
@@ -74,13 +70,9 @@ func (mg *Mongodb) BatchAddPins(pins []interface{}) (err error) {
 	if len(operations) > 0 {
 		_, err := mongoClient.Collection(PinsCollection).BulkWrite(context.TODO(), operations, opts)
 		if err != nil {
-			if bulkErr, ok := err.(mongo.BulkWriteException); ok {
-				for _, writeErr := range bulkErr.WriteErrors {
-					if writeErr.Code == 11000 {
-						continue
-					}
-					log.Printf("BatchAddPins err: %v", writeErr)
-				}
+			if filteredErr := ignoreDuplicateKeyBulkWriteError(err); filteredErr != nil {
+				log.Printf("BatchAddPins err: %v", filteredErr)
+				return filteredErr
 			}
 		}
 	}
@@ -89,6 +81,19 @@ func (mg *Mongodb) BatchAddPins(pins []interface{}) (err error) {
 	//addPDV(pins)
 	//addFDV(pins)
 	return
+}
+
+func ignoreDuplicateKeyBulkWriteError(err error) error {
+	bulkErr, ok := err.(mongo.BulkWriteException)
+	if !ok {
+		return err
+	}
+	for _, writeErr := range bulkErr.WriteErrors {
+		if writeErr.Code != 11000 {
+			return err
+		}
+	}
+	return nil
 }
 
 func (mg *Mongodb) UpdateTransferPin(trasferMap map[string]*pin.PinTransferInfo) (err error) {

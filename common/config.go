@@ -103,6 +103,17 @@ type mvcConfig struct {
 	ZmqHost         string `toml:"zmqHost"`
 	PopCutNum       int    `toml:"popCutNum"`
 }
+type dogeConfig struct {
+	InitialHeight   int64  `toml:"initialHeight"`
+	Mrc20Height     int64  `toml:"mrc20Height"`
+	RpcHost         string `toml:"rpcHost"`
+	RpcUser         string `toml:"rpcUser"`
+	RpcPass         string `toml:"rpcPass"`
+	RpcHTTPPostMode bool   `toml:"rpcHttpPostMode"`
+	RpcDisableTLS   bool   `toml:"rpcDisableTLS"`
+	ZmqHost         string `toml:"zmqHost"`
+	PopCutNum       int    `toml:"popCutNum"`
+}
 type opcatConfig struct {
 	InitialHeight   int64  `toml:"initialHeight"`
 	Mrc20Height     int64  `toml:"mrc20Height"`

@@ -507,27 +507,32 @@ func (indexer *Indexer) parseOnePin(tokenizer *txscript.ScriptTokenizer) *pin.Pe
 }
 func (indexer *Indexer) GetBlockTxHash(blockHeight int64) (txhashList []string, pinIdList []string) {
 	chain := MicroVisionChain{}
-	blockMsg, err := chain.GetBlock(blockHeight)
+	blockMsg, err := chain.GetBlockVerbose(blockHeight)
 	if err != nil {
 		return
 	}
-	block := blockMsg.(*wire.MsgBlock)
-	for _, tx := range block.Transactions {
-		//recalculate txhash
-		txHash, err := GetNewHash(tx)
+	for _, txid := range blockMsg.Tx {
+		tx, err := chain.GetRawTransaction(txid)
 		if err != nil {
 			continue
 		}
-		for i := range tx.Copy().TxOut {
-			var pinId strings.Builder
-			pinId.WriteString(txHash)
-			pinId.WriteString("i")
-			pinId.WriteString(strconv.Itoa(i))
-			pinIdList = append(pinIdList, pinId.String())
-		}
-		txhashList = append(txhashList, tx.TxHash().String())
+		txhashList = append(txhashList, tx.Hash().String())
+		pinIdList = append(pinIdList, pinIDsFromMsgTx(tx.MsgTx())...)
 	}
 	return
+}
+
+func pinIDsFromMsgTx(tx *wire.MsgTx) []string {
+	pinIdList := make([]string, 0, len(tx.TxOut))
+	txHash := tx.TxHash().String()
+	for i := range tx.TxOut {
+		var pinId strings.Builder
+		pinId.WriteString(txHash)
+		pinId.WriteString("i")
+		pinId.WriteString(strconv.Itoa(i))
+		pinIdList = append(pinIdList, pinId.String())
+	}
+	return pinIdList
 }
 func (indexer *Indexer) CatchNativeMrc20Transfer(blockHeight int64, utxoList []*mrc20.Mrc20Utxo, mrc20TransferPinTx map[string]struct{}) (savelist []*mrc20.Mrc20Utxo) {
 	pointMap := make(map[string][]*mrc20.Mrc20Utxo)

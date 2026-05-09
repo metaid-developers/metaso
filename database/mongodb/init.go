@@ -27,6 +27,12 @@ func protocolsInit(mongoClient *mongo.Database) {
 	}
 }
 
+type indexSpec struct {
+	Name   string
+	Keys   bson.D
+	Unique bool
+}
+
 func checkIndexExists(mongoClient *mongo.Database, collectionName, indexName string) (bool, error) {
 	collection := mongoClient.Collection(collectionName)
 	indexView := collection.Indexes()
@@ -64,4 +70,12 @@ func createIndexIfNotExists(mongoClient *mongo.Database, collectionName, indexNa
 		//fmt.Printf("Index %s created successfully\n", indexName)
 	}
 	return nil
+}
+
+func syncLastIdLogIndexes() []indexSpec {
+	return []indexSpec{{
+		Name:   "key_1",
+		Keys:   bson.D{{Key: "key", Value: 1}},
+		Unique: true,
+	}}
 }

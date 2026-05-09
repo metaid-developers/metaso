@@ -121,6 +121,9 @@ func connectMongoDb() {
 	createIndexIfNotExists(mongoClient, Mrc20UtxoMempoolCollection, "mrc20id_txpoint_verify_1", bson.D{{Key: "mrc20id", Value: 1}, {Key: "txpoint", Value: 1}, {Key: "index", Value: 1}}, true)
 	createIndexIfNotExists(mongoClient, Mrc20UtxoMempoolCollection, "mrc20id_operationtx_1", bson.D{{Key: "operationtx", Value: 1}}, false)
 	createIndexIfNotExists(mongoClient, Mrc20UtxoMempoolCollection, "mrc20balance_1", bson.D{{Key: "toaddress", Value: 1}, {Key: "status", Value: 1}, {Key: "verify", Value: 1}, {Key: "mrcoption", Value: 1}}, false)
+	for _, indexSpec := range syncLastIdLogIndexes() {
+		createIndexIfNotExists(mongoClient, SyncLastIdLog, indexSpec.Name, indexSpec.Keys, indexSpec.Unique)
+	}
 
 	//meatAccess
 	createIndexIfNotExists(mongoClient, AccessControlCollection, "pinid_1", bson.D{{Key: "pinid", Value: 1}}, true)
@@ -290,8 +293,11 @@ func UpdateSyncLastIdLog(key string, id primitive.ObjectID) (err error) {
 func UpdateSyncLastNumber(key string, nb int64) (err error) {
 	filter := bson.D{{Key: "key", Value: key}}
 	update := bson.D{
-		{Key: "$set", Value: bson.D{
+		{Key: "$max", Value: bson.D{
 			{Key: "lastnumber", Value: nb},
+		}},
+		{Key: "$setOnInsert", Value: bson.D{
+			{Key: "key", Value: key},
 		}},
 	}
 	updateOpts := options.Update().SetUpsert(true)

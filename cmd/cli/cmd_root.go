@@ -22,7 +22,7 @@ var rootCmd = &cobra.Command{
 }
 
 func initConfig() {
-	common.InitConfig()
+	common.InitConfig("./config.toml")
 	man.InitAdapter(common.Chain, common.Db, common.TestNet, common.Server)
 	InitBtcRpc("/wallet/" + WALLETNAME)
 }

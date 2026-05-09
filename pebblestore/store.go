@@ -49,6 +49,9 @@ func (l *customLogger) Errorf(format string, args ...interface{}) {}
 // NewDataBase 创建索引器，自动创建分片db、pages、blocks独立db
 func NewDataBase(basePath string, shardNum int) (*Database, error) {
 	log.Println("=========NEW PEBBLE DATABASE========")
+	if shardNum <= 0 {
+		shardNum = ShardConfig
+	}
 	dbOptions := &pebble.Options{
 		//Logger: noopLogger,
 		Levels: []pebble.LevelOptions{

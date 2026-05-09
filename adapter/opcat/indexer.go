@@ -1,7 +1,9 @@
 package opcat
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -16,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/shopspring/decimal"
 )
 
 var netParams *chaincfg.Params
@@ -26,6 +29,30 @@ type Indexer struct {
 	PopCutNum   int
 	DbAdapter   *database.Db
 	ChainName   string
+}
+
+type opcatVerboseBlock struct {
+	Hash       string   `json:"hash"`
+	MerkleRoot string   `json:"merkleroot"`
+	Time       int64    `json:"time"`
+	Tx         []string `json:"tx"`
+}
+
+type opcatVerboseTx struct {
+	TxID string `json:"txid"`
+	Vin  []struct {
+		TxID string `json:"txid"`
+		Vout uint32 `json:"vout"`
+	} `json:"vin"`
+	Vout []opcatVerboseVout `json:"vout"`
+}
+
+type opcatVerboseVout struct {
+	N            uint32      `json:"n"`
+	Value        json.Number `json:"value"`
+	ScriptPubKey struct {
+		Hex string `json:"hex"`
+	} `json:"scriptPubKey"`
 }
 
 func (indexer *Indexer) InitIndexer() {
@@ -41,31 +68,56 @@ func (indexer *Indexer) GetAddress(pkScript []byte) (address string) {
 }
 
 func (indexer *Indexer) CatchPins(blockHeight int64) (pinInscriptions []*pin.PinInscription, txInList []string, creatorMap map[string]string) {
-	chain := OpcatChain{}
-	blockMsg, err := chain.GetBlock(blockHeight)
+	blockHash, err := client.GetBlockHash(blockHeight)
 	if err != nil {
+		log.Println("GetBlockHash Error:", err)
+		return
+	}
+	var block opcatVerboseBlock
+	if err := opcatRawRequest("getblock", []interface{}{blockHash.String(), 1}, &block); err != nil {
 		log.Println("GetBlock Error:", err)
 		return
 	}
-	indexer.Block = blockMsg
-	block := blockMsg.(*wire.MsgBlock)
-
-	timestamp := block.Header.Timestamp.Unix()
-	blockHash := block.BlockHash().String()
-	merkleRoot := block.Header.MerkleRoot.String()
+	indexer.Block = block
 	creatorMap = make(map[string]string)
 
-	for i, tx := range block.Transactions {
-		for _, in := range tx.TxIn {
-			id := common.ConcatBytesOptimized([]string{in.PreviousOutPoint.Hash.String(), ":", strconv.FormatUint(uint64(in.PreviousOutPoint.Index), 10)}, "")
+	for i, txid := range block.Tx {
+		var tx opcatVerboseTx
+		if err := opcatRawRequest("getrawtransaction", []interface{}{txid, true}, &tx); err != nil {
+			log.Println("GetRawTransaction Error:", err)
+			continue
+		}
+		for _, in := range tx.Vin {
+			if in.TxID == "" {
+				continue
+			}
+			id := common.ConcatBytesOptimized([]string{in.TxID, ":", strconv.FormatUint(uint64(in.Vout), 10)}, "")
 			txInList = append(txInList, id)
 		}
-		txPins := indexer.CatchPinsByTx(tx, blockHeight, timestamp, blockHash, merkleRoot, i)
+		txPins := indexer.catchPinsByVerboseTx(tx, blockHeight, block.Time, block.Hash, block.MerkleRoot, i)
 		if len(txPins) > 0 {
 			pinInscriptions = append(pinInscriptions, txPins...)
 		}
 	}
 	return
+}
+
+func opcatRawRequest(method string, params []interface{}, result interface{}) error {
+	rawParams := make([]json.RawMessage, 0, len(params))
+	for _, param := range params {
+		data, err := json.Marshal(param)
+		if err != nil {
+			return err
+		}
+		rawParams = append(rawParams, data)
+	}
+	raw, err := client.RawRequest(method, rawParams)
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	return decoder.Decode(result)
 }
 
 func (indexer *Indexer) CatchMempoolPins(txList []interface{}) (pinInscriptions []*pin.PinInscription, txInList []string) {
@@ -88,20 +140,91 @@ func (indexer *Indexer) CatchMempoolPins(txList []interface{}) (pinInscriptions 
 
 func (indexer *Indexer) CatchTransfer(idMap map[string]string) (trasferMap map[string]*pin.PinTransferInfo) {
 	trasferMap = make(map[string]*pin.PinTransferInfo)
-	block := indexer.Block.(*wire.MsgBlock)
-	for _, tx := range block.Transactions {
-		for _, in := range tx.TxIn {
-			id := fmt.Sprintf("%s:%d", in.PreviousOutPoint.Hash.String(), in.PreviousOutPoint.Index)
-			if fromAddress, ok := idMap[id]; ok {
-				info, err := indexer.GetOWnerAddress(id, tx)
-				if err == nil && info != nil {
-					info.FromAddress = fromAddress
-					trasferMap[id] = info
+	switch block := indexer.Block.(type) {
+	case *wire.MsgBlock:
+		for _, tx := range block.Transactions {
+			for _, in := range tx.TxIn {
+				id := fmt.Sprintf("%s:%d", in.PreviousOutPoint.Hash.String(), in.PreviousOutPoint.Index)
+				if fromAddress, ok := idMap[id]; ok {
+					info, err := indexer.GetOWnerAddress(id, tx)
+					if err == nil && info != nil {
+						info.FromAddress = fromAddress
+						trasferMap[id] = info
+					}
 				}
 			}
 		}
+	case opcatVerboseBlock:
+		indexer.catchTransferByVerboseBlock(block, idMap, trasferMap)
 	}
 	return
+}
+
+func (indexer *Indexer) catchTransferByVerboseBlock(block opcatVerboseBlock, idMap map[string]string, trasferMap map[string]*pin.PinTransferInfo) {
+	for _, txid := range block.Tx {
+		var tx opcatVerboseTx
+		if err := opcatRawRequest("getrawtransaction", []interface{}{txid, true}, &tx); err != nil {
+			log.Println("GetRawTransaction Error:", err)
+			continue
+		}
+		indexer.catchTransferByVerboseTx(tx, idMap, trasferMap)
+	}
+}
+
+func (indexer *Indexer) catchTransferByVerboseTx(tx opcatVerboseTx, idMap map[string]string, trasferMap map[string]*pin.PinTransferInfo) {
+	for _, in := range tx.Vin {
+		if in.TxID == "" {
+			continue
+		}
+		id := fmt.Sprintf("%s:%d", in.TxID, in.Vout)
+		if fromAddress, ok := idMap[id]; ok {
+			info, err := indexer.getOwnerAddressFromVerboseTx(tx)
+			if err == nil && info != nil {
+				info.FromAddress = fromAddress
+				trasferMap[id] = info
+			}
+		}
+	}
+}
+
+func (indexer *Indexer) getOwnerAddressFromVerboseTx(tx opcatVerboseTx) (info *pin.PinTransferInfo, err error) {
+	info = &pin.PinTransferInfo{}
+	if len(tx.Vin) == 0 || len(tx.Vout) == 0 {
+		return nil, nil
+	}
+	out := tx.Vout[0]
+	info.Address = indexer.getVerboseOutputAddress(out)
+	info.Location = fmt.Sprintf("%s:%d:%d", tx.TxID, out.N, 0)
+	info.Offset = uint64(out.N)
+	info.Output = fmt.Sprintf("%s:%d", tx.TxID, out.N)
+	info.OutputValue = verboseOutputValue(out)
+	return
+}
+
+func (indexer *Indexer) getVerboseOutputAddress(out opcatVerboseVout) string {
+	pkScript, err := hex.DecodeString(out.ScriptPubKey.Hex)
+	if err != nil {
+		return ""
+	}
+	if address := indexer.GetAddress(pkScript); address != "" {
+		return address
+	}
+	class, _, _, _ := txscript.ExtractPkScriptAddrs(pkScript, netParams)
+	if class.String() == "nulldata" {
+		return hex.EncodeToString(pkScript)
+	}
+	return ""
+}
+
+func verboseOutputValue(out opcatVerboseVout) int64 {
+	if out.Value == "" {
+		return 0
+	}
+	outputValue, err := decimal.NewFromString(out.Value.String())
+	if err != nil {
+		return 0
+	}
+	return outputValue.Mul(decimal.NewFromInt(100000000)).IntPart()
 }
 
 func (indexer *Indexer) GetOWnerAddress(inputId string, tx *wire.MsgTx) (info *pin.PinTransferInfo, err error) {
@@ -163,77 +286,159 @@ func (indexer *Indexer) GetOWnerAddress(inputId string, tx *wire.MsgTx) (info *p
 func (indexer *Indexer) CatchPinsByTx(msgTx *wire.MsgTx, blockHeight int64, timestamp int64, blockHash string, merkleRoot string, txIndex int) (pinInscriptions []*pin.PinInscription) {
 	haveOpReturn := false
 	for i, out := range msgTx.TxOut {
-		class, _, _, _ := txscript.ExtractPkScriptAddrs(out.PkScript, netParams)
-		if class.String() == "nonstandard" {
-			pinInscription := indexer.ParsePin(out.PkScript)
-			if pinInscription == nil {
-				continue
-			}
-			_, host, path := pin.ValidHostPath(pinInscription.Path)
-			if common.CheckBlockedHost(host) {
-				continue
-			}
-			if !common.CheckHost(host) {
-				continue
-			}
-			address, outIdx, locationIdx := indexer.GetPinOwner(msgTx, 0)
-			txHash, err := GetNewHash(msgTx)
-			if err != nil {
-				continue
-			}
-			id := fmt.Sprintf("%si%d", txHash, outIdx)
-			metaId := common.GetMetaIdByAddress(address)
-			contentTypeDetect := common.DetectContentType(&pinInscription.ContentBody)
-			pop := ""
-			if merkleRoot != "" && blockHash != "" {
-				pop, _ = common.GenPop(id, merkleRoot, blockHash)
-			}
-			popLv, _ := pin.PopLevelCount(indexer.ChainName, pop)
-			creator := address
-
-			pinInscriptions = append(pinInscriptions, &pin.PinInscription{
-				ChainName:          indexer.ChainName,
-				Id:                 id,
-				MetaId:             metaId,
-				Number:             0,
-				Address:            address,
-				InitialOwner:       address,
-				CreateAddress:      creator,
-				CreateMetaId:       common.GetMetaIdByAddress(creator),
-				Timestamp:          timestamp,
-				GenesisHeight:      blockHeight,
-				GenesisTransaction: txHash,
-				Output:             fmt.Sprintf("%s:%d", txHash, outIdx),
-				OutputValue:        msgTx.TxOut[outIdx].Value,
-				TxInIndex:          uint32(i - 1),
-				Offset:             uint64(outIdx),
-				TxIndex:            txIndex,
-				Operation:          pinInscription.Operation,
-				Location:           fmt.Sprintf("%s:%d:%d", txHash, outIdx, locationIdx),
-				Path:               strings.TrimSpace(path),
-				OriginalPath:       strings.TrimSpace(pinInscription.Path),
-				ParentPath:         strings.TrimSpace(pinInscription.ParentPath),
-				Encryption:         pinInscription.Encryption,
-				Version:            pinInscription.Version,
-				ContentType:        pinInscription.ContentType,
-				ContentTypeDetect:  contentTypeDetect,
-				ContentBody:        pinInscription.ContentBody,
-				ContentLength:      pinInscription.ContentLength,
-				ContentSummary:     getContentSummary(pinInscription, id, contentTypeDetect),
-				Pop:                pop,
-				PopLv:              popLv,
-				PoPScore:           pin.GetPoPScore(pop, int64(popLv), common.Config.Opcat.PopCutNum),
-				PoPScoreV1:         pin.GetPoPScoreV1(pop, popLv),
-				DataValue:          pin.RarityScoreBinary(indexer.ChainName, pop),
-				Mrc20MintId:        []string{},
-				Host:               host,
-			})
-			haveOpReturn = true
-			break
+		pinInscription := indexer.ParsePin(out.PkScript)
+		if pinInscription == nil {
+			continue
 		}
+		_, host, path := pin.ValidHostPath(pinInscription.Path)
+		if common.CheckBlockedHost(host) {
+			continue
+		}
+		if !common.CheckHost(host) {
+			continue
+		}
+		address, _, _ := indexer.GetPinOwner(msgTx, 0)
+		txHash, err := GetNewHash(msgTx)
+		if err != nil {
+			continue
+		}
+		id := fmt.Sprintf("%si%d", txHash, i)
+		metaId := common.GetMetaIdByAddress(address)
+		contentTypeDetect := common.DetectContentType(&pinInscription.ContentBody)
+		pop := ""
+		if merkleRoot != "" && blockHash != "" {
+			pop, _ = common.GenPop(id, merkleRoot, blockHash)
+		}
+		popLv, _ := pin.PopLevelCount(indexer.ChainName, pop)
+		creator := address
+		txInIndex := uint32(0)
+		if i > 0 {
+			txInIndex = uint32(i - 1)
+		}
+		pinInscriptions = append(pinInscriptions, &pin.PinInscription{
+			ChainName:          indexer.ChainName,
+			Id:                 id,
+			MetaId:             metaId,
+			Number:             0,
+			Address:            address,
+			InitialOwner:       address,
+			CreateAddress:      creator,
+			CreateMetaId:       common.GetMetaIdByAddress(creator),
+			Timestamp:          timestamp,
+			GenesisHeight:      blockHeight,
+			GenesisTransaction: txHash,
+			Output:             fmt.Sprintf("%s:%d", txHash, i),
+			OutputValue:        out.Value,
+			TxInIndex:          txInIndex,
+			Offset:             uint64(i),
+			TxIndex:            txIndex,
+			Operation:          pinInscription.Operation,
+			Location:           fmt.Sprintf("%s:%d:%d", txHash, i, 0),
+			Path:               strings.TrimSpace(path),
+			OriginalPath:       strings.TrimSpace(pinInscription.Path),
+			ParentPath:         strings.TrimSpace(pinInscription.ParentPath),
+			Encryption:         pinInscription.Encryption,
+			Version:            pinInscription.Version,
+			ContentType:        pinInscription.ContentType,
+			ContentTypeDetect:  contentTypeDetect,
+			ContentBody:        pinInscription.ContentBody,
+			ContentLength:      pinInscription.ContentLength,
+			ContentSummary:     getContentSummary(pinInscription, id, contentTypeDetect),
+			Pop:                pop,
+			PopLv:              popLv,
+			PoPScore:           pin.GetPoPScore(pop, int64(popLv), common.Config.Opcat.PopCutNum),
+			PoPScoreV1:         pin.GetPoPScoreV1(pop, popLv),
+			DataValue:          pin.RarityScoreBinary(indexer.ChainName, pop),
+			Mrc20MintId:        []string{},
+			Host:               host,
+		})
+		haveOpReturn = true
+		break
 	}
 	if !haveOpReturn {
 		return nil
+	}
+	return
+}
+
+func (indexer *Indexer) catchPinsByVerboseTx(tx opcatVerboseTx, blockHeight int64, timestamp int64, blockHash string, merkleRoot string, txIndex int) (pinInscriptions []*pin.PinInscription) {
+	ownerAddress := ""
+	for _, out := range tx.Vout {
+		pkScript, err := hex.DecodeString(out.ScriptPubKey.Hex)
+		if err != nil {
+			continue
+		}
+		if indexer.ParsePin(pkScript) != nil {
+			continue
+		}
+		if address := indexer.GetAddress(pkScript); address != "" {
+			ownerAddress = address
+			break
+		}
+	}
+
+	for _, out := range tx.Vout {
+		pkScript, err := hex.DecodeString(out.ScriptPubKey.Hex)
+		if err != nil {
+			continue
+		}
+		pinInscription := indexer.ParsePin(pkScript)
+		if pinInscription == nil {
+			continue
+		}
+		_, host, path := pin.ValidHostPath(pinInscription.Path)
+		if common.CheckBlockedHost(host) {
+			continue
+		}
+		if !common.CheckHost(host) {
+			continue
+		}
+		id := fmt.Sprintf("%si%d", tx.TxID, out.N)
+		metaId := common.GetMetaIdByAddress(ownerAddress)
+		contentTypeDetect := common.DetectContentType(&pinInscription.ContentBody)
+		pop := ""
+		if merkleRoot != "" && blockHash != "" {
+			pop, _ = common.GenPop(id, merkleRoot, blockHash)
+		}
+		popLv, _ := pin.PopLevelCount(indexer.ChainName, pop)
+		pinInscriptions = append(pinInscriptions, &pin.PinInscription{
+			ChainName:          indexer.ChainName,
+			Id:                 id,
+			MetaId:             metaId,
+			Number:             0,
+			Address:            ownerAddress,
+			InitialOwner:       ownerAddress,
+			CreateAddress:      ownerAddress,
+			CreateMetaId:       common.GetMetaIdByAddress(ownerAddress),
+			Timestamp:          timestamp,
+			GenesisHeight:      blockHeight,
+			GenesisTransaction: tx.TxID,
+			Output:             fmt.Sprintf("%s:%d", tx.TxID, out.N),
+			OutputValue:        verboseOutputValue(out),
+			TxInIndex:          0,
+			Offset:             uint64(out.N),
+			TxIndex:            txIndex,
+			Operation:          pinInscription.Operation,
+			Location:           fmt.Sprintf("%s:%d:%d", tx.TxID, out.N, 0),
+			Path:               strings.TrimSpace(path),
+			OriginalPath:       strings.TrimSpace(pinInscription.Path),
+			ParentPath:         strings.TrimSpace(pinInscription.ParentPath),
+			Encryption:         pinInscription.Encryption,
+			Version:            pinInscription.Version,
+			ContentType:        pinInscription.ContentType,
+			ContentTypeDetect:  contentTypeDetect,
+			ContentBody:        pinInscription.ContentBody,
+			ContentLength:      pinInscription.ContentLength,
+			ContentSummary:     getContentSummary(pinInscription, id, contentTypeDetect),
+			Pop:                pop,
+			PopLv:              popLv,
+			PoPScore:           pin.GetPoPScore(pop, int64(popLv), common.Config.Opcat.PopCutNum),
+			PoPScoreV1:         pin.GetPoPScoreV1(pop, popLv),
+			DataValue:          pin.RarityScoreBinary(indexer.ChainName, pop),
+			Mrc20MintId:        []string{},
+			Host:               host,
+		})
+		break
 	}
 	return
 }
@@ -277,13 +482,25 @@ func (indexer *Indexer) ParsePin(pkScript []byte) (pinode *pin.PersonalInformati
 	tokenizer := txscript.MakeScriptTokenizer(0, pkScript)
 	for tokenizer.Next() {
 		if tokenizer.Opcode() == txscript.OP_RETURN {
-			if !tokenizer.Next() || hex.EncodeToString(tokenizer.Data()) != common.Config.ProtocolID {
+			if !tokenizer.Next() {
 				return
 			}
-			pinode = indexer.parseOnePin(&tokenizer)
+			if hex.EncodeToString(tokenizer.Data()) == common.Config.ProtocolID {
+				pinode = indexer.parseOnePin(&tokenizer)
+			} else {
+				pinode = indexer.parseNestedPin(tokenizer.Data())
+			}
 		}
 	}
 	return
+}
+
+func (indexer *Indexer) parseNestedPin(payload []byte) *pin.PersonalInformationNode {
+	tokenizer := txscript.MakeScriptTokenizer(0, payload)
+	if !tokenizer.Next() || hex.EncodeToString(tokenizer.Data()) != common.Config.ProtocolID {
+		return nil
+	}
+	return indexer.parseOnePin(&tokenizer)
 }
 
 func (indexer *Indexer) parseOnePin(tokenizer *txscript.ScriptTokenizer) *pin.PersonalInformationNode {
@@ -337,27 +554,35 @@ func (indexer *Indexer) parseOnePin(tokenizer *txscript.ScriptTokenizer) *pin.Pe
 }
 
 func (indexer *Indexer) GetBlockTxHash(blockHeight int64) (txhashList []string, pinIdList []string) {
-	chain := OpcatChain{}
-	blockMsg, err := chain.GetBlock(blockHeight)
+	blockHash, err := client.GetBlockHash(blockHeight)
 	if err != nil {
 		return
 	}
-	block := blockMsg.(*wire.MsgBlock)
-	for _, tx := range block.Transactions {
-		txHash, err := GetNewHash(tx)
-		if err != nil {
+	var block opcatVerboseBlock
+	if err := opcatRawRequest("getblock", []interface{}{blockHash.String(), 1}, &block); err != nil {
+		return
+	}
+	for _, txid := range block.Tx {
+		var tx opcatVerboseTx
+		if err := opcatRawRequest("getrawtransaction", []interface{}{txid, true}, &tx); err != nil {
 			continue
 		}
-		for i := range tx.Copy().TxOut {
-			var pinId strings.Builder
-			pinId.WriteString(txHash)
-			pinId.WriteString("i")
-			pinId.WriteString(strconv.Itoa(i))
-			pinIdList = append(pinIdList, pinId.String())
-		}
-		txhashList = append(txhashList, tx.TxHash().String())
+		pinIdList = append(pinIdList, pinIDsFromVerboseTx(tx)...)
+		txhashList = append(txhashList, tx.TxID)
 	}
 	return
+}
+
+func pinIDsFromVerboseTx(tx opcatVerboseTx) []string {
+	pinIdList := make([]string, 0, len(tx.Vout))
+	for _, out := range tx.Vout {
+		var pinId strings.Builder
+		pinId.WriteString(tx.TxID)
+		pinId.WriteString("i")
+		pinId.WriteString(strconv.FormatUint(uint64(out.N), 10))
+		pinIdList = append(pinIdList, pinId.String())
+	}
+	return pinIdList
 }
 
 // MRC20 methods are no-ops for opcat

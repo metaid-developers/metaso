@@ -1,17 +1,14 @@
 package pebblestore
 
 import (
-	"fmt"
-	"manindexer/common"
 	"manindexer/pin"
-	"strconv"
 	"strings"
 	"testing"
 )
 
 func TestBatchInsertPins(t *testing.T) {
 	// 使用临时目录
-	dir := "../data_test"
+	dir := t.TempDir()
 	idx, err := NewDataBase(dir, 4)
 	if err != nil {
 		t.Fatalf("NewDataBase err: %v", err)
@@ -29,23 +26,18 @@ func TestBatchInsertPins(t *testing.T) {
 	}
 
 	// 查询主键（自动分片）
-	key := BuildPinKey("txid1", 0)
-	val, err := idx.GetPinByKey(key)
+	key := "txid1"
+	got, err := idx.GetPinInscriptionByKey(key)
 	if err != nil {
 		t.Fatalf("主键查询失败: %v", err)
 	}
-	t.Logf("主键%s查询结果: %+v", key, string(val))
-	if string(val) != "111" {
-		t.Fatalf("主键查询内容不符: %+v", string(val))
+	t.Logf("主键%s查询结果: %+v", key, got)
+	if got.ContentSummary != "111" {
+		t.Fatalf("主键查询内容不符: %+v", got)
 	}
 
 	// 批量查询主键
-	keys := []string{
-		BuildPinKey("txid1", 0),
-		BuildPinKey("txid2", 1),
-		BuildPinKey("txid3", 0),
-		BuildPinKey("notfound", 0), // 不存在的key
-	}
+	keys := []string{"txid1", "txid2", "txid3", "notfound"}
 	vals := idx.BatchGetPinByKeys(keys, false)
 	for _, k := range keys {
 		if v, ok := vals[k]; ok {
@@ -57,24 +49,37 @@ func TestBatchInsertPins(t *testing.T) {
 
 	// 测试区块交易表写入和读取
 	blockKeys := []string{"txid1:0", "txid2:1"}
-	err = idx.InsertBlockTxs("100&200chainA", strings.Join(blockKeys, ","))
+	blockKey := "chainA_block_1"
+	err = idx.InsertBlockTxs(blockKey, strings.Join(blockKeys, ","))
 	if err != nil {
 		t.Fatalf("InsertBlockTxs err: %v", err)
 	}
-	blockKey := common.ConcatBytesOptimized([]string{"chainA", "_block_", strconv.Itoa(1)}, "")
 	val, closer, err := idx.BlocksDB.Get([]byte(blockKey))
 	if err != nil {
 		t.Fatalf("区块交易表查询失败: %v", err)
 	}
-	blockTxs := SplitBytesOptimized(string(val), "|")
+	blockTxs := SplitBytesOptimized(string(val), ",")
 	closer.Close()
 	if len(blockTxs) != 2 || blockTxs[0] != "txid1:0" {
 		t.Fatalf("区块交易表内容不符: %+v", blockTxs)
 	}
 	t.Logf("区块交易表内容: %+v", blockTxs)
 }
+
+func TestNewDataBaseUsesDefaultShardCountWhenConfigIsZero(t *testing.T) {
+	idx, err := NewDataBase(t.TempDir(), 0)
+	if err != nil {
+		t.Fatalf("NewDataBase err: %v", err)
+	}
+	defer idx.Close()
+
+	if len(idx.PinsDBs) != ShardConfig {
+		t.Fatalf("len(PinsDBs) = %d, want default shard count %d", len(idx.PinsDBs), ShardConfig)
+	}
+}
+
 func TestPebbleMerge(t *testing.T) {
-	dir := "../data_test"
+	dir := t.TempDir()
 	idx, err := NewDataBase(dir, 4)
 	if err != nil {
 		t.Fatalf("NewDataBase err: %v", err)
@@ -82,11 +87,20 @@ func TestPebbleMerge(t *testing.T) {
 	defer idx.Close()
 	data := make(map[string]string)
 	data["a"] = "1"
-	idx.BatchMergeAddressData(data)
+	if err := idx.BatchMergeAddressData(data); err != nil {
+		t.Fatalf("BatchMergeAddressData err: %v", err)
+	}
 	data2 := make(map[string]string)
 	data2["a"] = "2"
-	idx.BatchMergeAddressData(data2)
+	if err := idx.BatchMergeAddressData(data2); err != nil {
+		t.Fatalf("BatchMergeAddressData err: %v", err)
+	}
 	v, closer, err := idx.AddressDB.Get([]byte("a"))
+	if err != nil {
+		t.Fatalf("AddressDB.Get err: %v", err)
+	}
 	defer closer.Close()
-	fmt.Println(err, string(v))
+	if string(v) != "12" {
+		t.Fatalf("merged value = %q, want %q", string(v), "12")
+	}
 }
