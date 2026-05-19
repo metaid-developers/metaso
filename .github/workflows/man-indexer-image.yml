@@ -23,6 +23,7 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/metaso-labs/man-indexer
+  DOCKER_BUILD_RECORD_UPLOAD: "false"
 
 jobs:
   build:
