@@ -49,3 +49,53 @@ func TestBuildCommentsListKeepsCommentsMissingBuzzViewMetrics(t *testing.T) {
 		t.Fatalf("metric counts = (%d,%d), want (3,2)", got[1].LikeNum, got[1].CommentNum)
 	}
 }
+
+func TestAppendCommentIfMissingSkipsDuplicatePinId(t *testing.T) {
+	comments := []*CommentsList{
+		{
+			PinId:     "same-comment-pin",
+			Content:   "confirmed comment",
+			Timestamp: 1779191190,
+		},
+	}
+	mempoolComment := &CommentsList{
+		PinId:     "same-comment-pin",
+		Content:   "mempool comment",
+		Timestamp: 1779190972,
+	}
+
+	appended := appendCommentIfMissing(&comments, mempoolComment)
+
+	if appended {
+		t.Fatal("appendCommentIfMissing() appended duplicate pinId, want skip")
+	}
+	if len(comments) != 1 {
+		t.Fatalf("comments len = %d, want 1", len(comments))
+	}
+	if comments[0].Timestamp != 1779191190 {
+		t.Fatalf("kept timestamp = %d, want confirmed timestamp 1779191190", comments[0].Timestamp)
+	}
+}
+
+func TestAppendCommentIfMissingAppendsNewPinId(t *testing.T) {
+	comments := []*CommentsList{
+		{PinId: "confirmed-comment"},
+	}
+	mempoolComment := &CommentsList{
+		PinId:     "new-mempool-comment",
+		Content:   "new comment",
+		Timestamp: 1779190972,
+	}
+
+	appended := appendCommentIfMissing(&comments, mempoolComment)
+
+	if !appended {
+		t.Fatal("appendCommentIfMissing() skipped new pinId, want append")
+	}
+	if len(comments) != 2 {
+		t.Fatalf("comments len = %d, want 2", len(comments))
+	}
+	if comments[1].PinId != "new-mempool-comment" {
+		t.Fatalf("appended pinId = %q, want new-mempool-comment", comments[1].PinId)
+	}
+}

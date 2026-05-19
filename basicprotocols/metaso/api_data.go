@@ -342,6 +342,19 @@ func buildCommentsList(commentsList []*TweetComment, tweetList []*Tweet) (commen
 	return
 }
 
+func appendCommentIfMissing(comments *[]*CommentsList, comment *CommentsList) bool {
+	if comment == nil {
+		return false
+	}
+	for _, item := range *comments {
+		if item != nil && item.PinId == comment.PinId {
+			return false
+		}
+	}
+	*comments = append(*comments, comment)
+	return true
+}
+
 func getInfo(pinId string) (tweet *Tweet, comments []*CommentsList, like []*TweetLike, donates []*MetasoDonate, err error) {
 	filter := bson.D{{Key: "id", Value: pinId}}
 	err = mongoClient.Collection(BuzzView).FindOne(context.TODO(), filter, nil).Decode(&tweet)
@@ -388,7 +401,7 @@ func getInfo(pinId string) (tweet *Tweet, comments []*CommentsList, like []*Twee
 			var commentData TweetComment
 			err := json.Unmarshal([]byte(data.Content), &commentData)
 			if err == nil {
-				comments = append(comments, &CommentsList{
+				appended := appendCommentIfMissing(&comments, &CommentsList{
 					PinId:         commentData.PinId,
 					ChainName:     commentData.ChainName,
 					CreateAddress: commentData.CreateAddress,
@@ -398,7 +411,9 @@ func getInfo(pinId string) (tweet *Tweet, comments []*CommentsList, like []*Twee
 					LikeNum:       0,
 					CommentNum:    0,
 				})
-				tweet.CommentCount += 1
+				if appended {
+					tweet.CommentCount += 1
+				}
 			}
 		} else if data.Path == "/protocols/simpledonate" {
 			var donatedata MetasoDonate
