@@ -300,6 +300,7 @@ func getCommentsList(pinId string) (comments []*CommentsList, err error) {
 		for _, c := range commentsList {
 			idList = append(idList, c.PinId)
 		}
+		comments = buildCommentsList(commentsList, nil)
 		filter := bson.D{{Key: "id", Value: bson.D{{Key: "$in", Value: idList}}}}
 		findOptions := options.Find().SetProjection(bson.D{
 			{Key: "id", Value: 1},
@@ -311,29 +312,36 @@ func getCommentsList(pinId string) (comments []*CommentsList, err error) {
 		if err == nil {
 			var tweetList []*Tweet
 			result.All(context.TODO(), &tweetList)
-			tweetMap := make(map[string]*Tweet, len(tweetList))
-			for _, t := range tweetList {
-				tweetMap[t.Id] = t
-			}
-
-			for _, c := range commentsList {
-				if t, ok := tweetMap[c.PinId]; ok {
-					comments = append(comments, &CommentsList{
-						PinId:         c.PinId,
-						ChainName:     c.ChainName,
-						CreateAddress: c.CreateAddress,
-						CreateMetaid:  c.CreateMetaid,
-						Content:       c.Content,
-						Timestamp:     c.Timestamp,
-						LikeNum:       int64(t.LikeCount),
-						CommentNum:    int64(t.CommentCount),
-					})
-				}
-			}
+			comments = buildCommentsList(commentsList, tweetList)
 		}
 	}
 	return
 }
+
+func buildCommentsList(commentsList []*TweetComment, tweetList []*Tweet) (comments []*CommentsList) {
+	tweetMap := make(map[string]*Tweet, len(tweetList))
+	for _, t := range tweetList {
+		tweetMap[t.Id] = t
+	}
+
+	for _, c := range commentsList {
+		item := &CommentsList{
+			PinId:         c.PinId,
+			ChainName:     c.ChainName,
+			CreateAddress: c.CreateAddress,
+			CreateMetaid:  c.CreateMetaid,
+			Content:       c.Content,
+			Timestamp:     c.Timestamp,
+		}
+		if t, ok := tweetMap[c.PinId]; ok {
+			item.LikeNum = int64(t.LikeCount)
+			item.CommentNum = int64(t.CommentCount)
+		}
+		comments = append(comments, item)
+	}
+	return
+}
+
 func getInfo(pinId string) (tweet *Tweet, comments []*CommentsList, like []*TweetLike, donates []*MetasoDonate, err error) {
 	filter := bson.D{{Key: "id", Value: pinId}}
 	err = mongoClient.Collection(BuzzView).FindOne(context.TODO(), filter, nil).Decode(&tweet)
