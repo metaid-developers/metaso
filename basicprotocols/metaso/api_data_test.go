@@ -99,3 +99,38 @@ func TestAppendCommentIfMissingAppendsNewPinId(t *testing.T) {
 		t.Fatalf("appended pinId = %q, want new-mempool-comment", comments[1].PinId)
 	}
 }
+
+func TestPrepareTweetFeedItemsDedupesByPinIdAndKeepsFirst(t *testing.T) {
+	tweets := []*Tweet{
+		{
+			Id:          "same-buzz",
+			ContentBody: []byte("first"),
+		},
+		{
+			Id:          "same-buzz",
+			ContentBody: []byte("duplicate"),
+		},
+		{
+			Id:          "other-buzz",
+			ContentBody: []byte("other"),
+		},
+	}
+
+	got, pinIds := prepareTweetFeedItems(tweets)
+
+	if len(got) != 2 {
+		t.Fatalf("deduped list len = %d, want 2", len(got))
+	}
+	if got[0].Id != "same-buzz" || got[0].Content != "first" {
+		t.Fatalf("first item = (%q,%q), want same-buzz first", got[0].Id, got[0].Content)
+	}
+	if len(got[0].ContentBody) != 0 {
+		t.Fatalf("first ContentBody len = %d, want 0", len(got[0].ContentBody))
+	}
+	if got[1].Id != "other-buzz" {
+		t.Fatalf("second item id = %q, want other-buzz", got[1].Id)
+	}
+	if len(pinIds) != 2 || pinIds[0] != "same-buzz" || pinIds[1] != "other-buzz" {
+		t.Fatalf("pinIds = %#v, want [same-buzz other-buzz]", pinIds)
+	}
+}

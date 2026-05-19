@@ -136,12 +136,7 @@ func getNewest(lastId string, size int64, listType string, metaid string, follow
 	if err == mongo.ErrNoDocuments {
 		err = nil
 	}
-	var pinIdList []string
-	for _, item := range list {
-		item.Content = string(item.ContentBody)
-		item.ContentBody = nil
-		pinIdList = append(pinIdList, item.Id)
-	}
+	list, pinIdList := prepareTweetFeedItems(list)
 
 	mempoolList, err := getBuzzMempoolCount(pinIdList)
 	if err == nil {
@@ -186,6 +181,24 @@ func getNewest(lastId string, size int64, listType string, metaid string, follow
 	}
 	total, err = mongoClient.Collection(BuzzView).CountDocuments(context.TODO(), totalFilter)
 
+	return
+}
+
+func prepareTweetFeedItems(list []*Tweet) (dedupedList []*Tweet, pinIdList []string) {
+	seen := make(map[string]struct{}, len(list))
+	for _, item := range list {
+		if item == nil {
+			continue
+		}
+		if _, ok := seen[item.Id]; ok {
+			continue
+		}
+		seen[item.Id] = struct{}{}
+		item.Content = string(item.ContentBody)
+		item.ContentBody = nil
+		pinIdList = append(pinIdList, item.Id)
+		dedupedList = append(dedupedList, item)
+	}
 	return
 }
 
