@@ -1,0 +1,28 @@
+.git
+.github
+.DS_Store
+$TMPDIR/
+
+# Local configs, secrets, and runtime data must not be baked into images.
+config.toml
+config_*.toml
+!config_example.toml
+*.pem
+*.key
+data/
+data_test/
+man_base_data_pebble/
+pev_data_pebble/
+pebble_data/
+user_operation_data/
+sync_data.db
+*_del_mempool_height.txt
+
+# Local build and analysis outputs.
+manindexer
+manindexer_*
+API_AVAILABILITY_REPORT.md
+PROJECT_ANALYSIS_REPORT.md
+*.log
+dist/
+release/

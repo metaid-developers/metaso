@@ -1,26 +1,56 @@
-FROM ubuntu:22.04
+FROM golang:1.24-bookworm AS builder
 
-WORKDIR /man
-RUN sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+WORKDIR /src
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        wget \
-        curl \
-        libc6 \
+        build-essential \
+        ca-certificates \
+        libstdc++6 \
         libzmq3-dev \
-        libstdc++6 && \
-    apt-get clean && \
+        pkg-config && \
     rm -rf /var/lib/apt/lists/*
 
-COPY ./manindexer /man/manindexer
-COPY ./config.toml /man/config.toml
-COPY ./man.metaid.io.pem /man/man.metaid.io.pem
-COPY ./btc_del_mempool_height.txt /man/btc_del_mempool_height.txt
-COPY ./del_mempool_height.txt /man/del_mempool_height.txt
-COPY ./man.metaid.io.key /man/man.metaid.io.key
-COPY ./mvc_del_mempool_height.txt /man/mvc_del_mempool_height.txt
-RUN mkdir -p /man/jieba_dict
-COPY jieba_dict /man/jieba_dict
-RUN  chmod +x /man/manindexer
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-CMD ["/man/manindexer", "-test=0", "-chain=btc,mvc"]
+COPY . .
+
+ENV CGO_ENABLED=1 \
+    GOOS=linux \
+    GOARCH=amd64
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w" -o /out/manindexer .
+
+FROM builder AS test
+
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go test ./basicprotocols/metaso ./man ./database/mongodb ./adapter/microvisionchain ./adapter/opcat ./common ./pebblestore -count=1
+
+FROM scratch AS artifact
+
+COPY --from=builder /out/manindexer /manindexer-linux-amd64
+
+FROM debian:bookworm-slim AS runtime
+
+WORKDIR /man
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        libstdc++6 \
+        libzmq5 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /out/manindexer /man/manindexer
+COPY config_example.toml /man/config.toml
+COPY jieba_dict /man/jieba_dict
+
+RUN chmod +x /man/manindexer
+
+CMD ["/man/manindexer", "-config=/man/config.toml", "-test=0", "-chain=btc,mvc,opcat"]

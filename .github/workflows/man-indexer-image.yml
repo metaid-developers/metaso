@@ -1,0 +1,168 @@
+name: Build man-indexer image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Image tag to publish, for example 0.9.20"
+        required: true
+        type: string
+      push_latest:
+        description: "Also publish ghcr.io/metaso-labs/man-indexer:latest"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v[0-9]*"
+      - "[0-9]*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/metaso-labs/man-indexer
+
+jobs:
+  build:
+    name: Build and publish linux/amd64
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Resolve version and image tags
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            raw_version="${{ inputs.version }}"
+            push_latest="${{ inputs.push_latest }}"
+          else
+            raw_version="${GITHUB_REF_NAME}"
+            push_latest="false"
+          fi
+
+          version="${raw_version#v}"
+          if ! [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]]; then
+            echo "::error::Invalid image tag: $raw_version"
+            exit 1
+          fi
+
+          {
+            echo "VERSION=$version"
+            echo "IMAGE_TAGS<<EOF"
+            echo "${IMAGE_NAME}:${version}"
+            if [ "$push_latest" = "true" ]; then
+              echo "${IMAGE_NAME}:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        env:
+          GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if [ -n "$GHCR_TOKEN" ]; then
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "${GHCR_USERNAME:-$GITHUB_ACTOR}" --password-stdin
+          else
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          fi
+
+      - name: Run containerized tests
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: test
+          platforms: linux/amd64
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Export linux/amd64 binary
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: artifact
+          platforms: linux/amd64
+          outputs: type=local,dest=dist
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate binary checksum
+        shell: bash
+        run: |
+          chmod +x dist/manindexer-linux-amd64
+          sha256sum dist/manindexer-linux-amd64 > dist/manindexer-linux-amd64.sha256
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: manindexer-linux-amd64-${{ env.VERSION }}
+          path: |
+            dist/manindexer-linux-amd64
+            dist/manindexer-linux-amd64.sha256
+          if-no-files-found: error
+
+      - name: Build and push runtime image
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE_TAGS }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify published image
+        shell: bash
+        run: |
+          docker buildx imagetools inspect "${IMAGE_NAME}:${VERSION}"
+
+      - name: Create or update GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              dist/manindexer-linux-amd64 \
+              dist/manindexer-linux-amd64.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              dist/manindexer-linux-amd64 \
+              dist/manindexer-linux-amd64.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          {
+            echo "## man-indexer build"
+            echo ""
+            echo "- Image: \`${IMAGE_NAME}:${VERSION}\`"
+            echo "- Digest: \`${{ steps.image.outputs.digest }}\`"
+            echo "- Binary artifact: \`manindexer-linux-amd64-${VERSION}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
