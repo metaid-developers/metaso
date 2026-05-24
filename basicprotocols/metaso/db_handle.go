@@ -93,7 +93,8 @@ func createIndex(mongoClient *mongo.Database) {
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "chainname_1", bson.D{{Key: "chainname", Value: 1}}, false)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "timestamp_1", bson.D{{Key: "timestamp", Value: 1}}, false)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "metaid_1", bson.D{{Key: "metaid", Value: 1}}, false)
-	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "creatormetaid_1", bson.D{{Key: "creatormetaid", Value: 1}}, false)
+	createMetaIDIndexName, createMetaIDIndexKeys := tweetCreateMetaIDIndex()
+	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, createMetaIDIndexName, createMetaIDIndexKeys, false)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "number_1", bson.D{{Key: "number", Value: 1}}, false)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "operation_1", bson.D{{Key: "operation", Value: 1}}, false)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "blocked_1", bson.D{{Key: "blocked", Value: 1}}, false)
@@ -160,6 +161,11 @@ func createIndex(mongoClient *mongo.Database) {
 	//RecommendedAuthors
 	mongo_util.CreateIndexIfNotExists(mongoClient, RecommendedAuthors, "author_id_1", bson.D{{Key: "author_id", Value: 1}}, true)
 }
+
+func tweetCreateMetaIDIndex() (string, bson.D) {
+	return "createmetaid_1", bson.D{{Key: "createmetaid", Value: 1}}
+}
+
 func createBuzzView() {
 	views, err := mongoClient.ListCollectionNames(context.Background(), bson.M{"name": BuzzView})
 	if err != nil {
