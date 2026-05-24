@@ -1,6 +1,14 @@
 package metaso
 
-import "testing"
+import (
+	"manindexer/database/mongodb"
+	"reflect"
+	"testing"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+)
 
 func TestBuildCommentsListKeepsCommentsMissingBuzzViewMetrics(t *testing.T) {
 	comments := []*TweetComment{
@@ -132,5 +140,65 @@ func TestPrepareTweetFeedItemsDedupesByPinIdAndKeepsFirst(t *testing.T) {
 	}
 	if len(pinIds) != 2 || pinIds[0] != "same-buzz" || pinIds[1] != "other-buzz" {
 		t.Fatalf("pinIds = %#v, want [same-buzz other-buzz]", pinIds)
+	}
+}
+
+func TestBuildNewestFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	filter := bson.D{
+		{Key: "blocked", Value: false},
+		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
+	}
+
+	got := buildNewestFeedPipeline(filter, 10)
+
+	want := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: -1}}}},
+		{{Key: "$limit", Value: int64(10)}},
+		{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: mongodb.MempoolPinsCollection},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$sort", Value: bson.D{{Key: "_id", Value: -1}}}},
+				{{Key: "$limit", Value: int64(10)}},
+			}},
+		}}},
+		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: -1}}}},
+		{{Key: "$limit", Value: int64(10)}},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildNewestFeedPipeline() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildNewestFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	filter := bson.D{
+		{Key: "blocked", Value: false},
+		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
+	}
+
+	got := buildNewestFeedTotalPipeline(filter)
+
+	want := mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$count", Value: "count"}},
+		{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: mongodb.MempoolPinsCollection},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$count", Value: "count"}},
+			}},
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
+		}}},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildNewestFeedTotalPipeline() = %#v, want %#v", got, want)
 	}
 }
