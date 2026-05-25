@@ -100,6 +100,9 @@ func createIndex(mongoClient *mongo.Database) {
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "blocked_1", bson.D{{Key: "blocked", Value: 1}}, false)
 	mongo_util.CreateTextIndexIfNotExists(mongoClient, TweetCollection, "tweet_text_1", []string{"keywords"})
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetCollection, "isrecommended_1", bson.D{{Key: "isrecommended", Value: 1}}, false)
+	for _, index := range recommendedFeedIndexes() {
+		mongo_util.CreateIndexIfNotExists(mongoClient, index.Collection, index.Name, index.Keys, false)
+	}
 	//payLike
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetLikeCollection, "pinid_1", bson.D{{Key: "pinid", Value: 1}}, true)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetLikeCollection, "liketopinid_1", bson.D{{Key: "liketopinid", Value: 1}}, false)
@@ -164,6 +167,57 @@ func createIndex(mongoClient *mongo.Database) {
 
 func tweetCreateMetaIDIndex() (string, bson.D) {
 	return "createmetaid_1", bson.D{{Key: "createmetaid", Value: 1}}
+}
+
+type metasoIndexSpec struct {
+	Collection string
+	Name       string
+	Keys       bson.D
+}
+
+func recommendedFeedIndexes() []metasoIndexSpec {
+	return []metasoIndexSpec{
+		{
+			Collection: TweetCollection,
+			Name:       "metaid__id_desc",
+			Keys:       bson.D{{Key: "metaid", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: TweetCollection,
+			Name:       "isrecommended__id_desc",
+			Keys:       bson.D{{Key: "isrecommended", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: TweetCollection,
+			Name:       "blocked__id_desc",
+			Keys:       bson.D{{Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: TweetCollection,
+			Name:       "hot__id_desc_timestamp",
+			Keys:       bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
+		},
+		{
+			Collection: mongodb.MempoolPinsCollection,
+			Name:       "path_metaid__id_desc",
+			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "metaid", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: mongodb.MempoolPinsCollection,
+			Name:       "path_isrecommended__id_desc",
+			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "isrecommended", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: mongodb.MempoolPinsCollection,
+			Name:       "path_blocked__id_desc",
+			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
+		},
+		{
+			Collection: mongodb.MempoolPinsCollection,
+			Name:       "path_hot__id_desc_timestamp",
+			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
+		},
+	}
 }
 
 func createBuzzView() {

@@ -142,21 +142,7 @@ func (metaso *MetaSo) getFollowedPosts(ctx context.Context, userAddress string, 
 	if len(excludeList) > 0 {
 		matchConditions = append(matchConditions, bson.E{Key: "id", Value: bson.D{{"$nin", excludeList}}})
 	}
-	// Build find options
-	findOptions := options.Find().
-		SetSort(bson.D{{"_id", -1}}).
-		SetLimit(size)
-
-	// Execute query
-	cursor, err := mongoClient.Collection(BuzzView).Find(ctx, matchConditions, findOptions)
-	if err != nil {
-		return
-	}
-	defer cursor.Close(ctx)
-
-	// Parse results
-	err = cursor.All(context.TODO(), &result)
-	return
+	return findRecommendedSourcePosts(ctx, matchConditions, bson.D{{Key: "_id", Value: -1}}, size)
 }
 
 // 获取推荐用户的帖子
@@ -166,21 +152,7 @@ func (metaso *MetaSo) getRecommendedPosts(ctx context.Context, size int64, exclu
 	if len(excludeList) > 0 {
 		matchConditions = append(matchConditions, bson.E{Key: "id", Value: bson.D{{"$nin", excludeList}}})
 	}
-	// Build find options
-	findOptions := options.Find().
-		SetSort(bson.D{{"_id", -1}}).
-		SetLimit(size)
-
-	// Execute query
-	cursor, err := mongoClient.Collection(BuzzView).Find(ctx, matchConditions, findOptions)
-	if err != nil {
-		return
-	}
-	defer cursor.Close(ctx)
-
-	// Parse results
-	err = cursor.All(context.TODO(), &result)
-	return
+	return findRecommendedSourcePosts(ctx, matchConditions, bson.D{{Key: "_id", Value: -1}}, size)
 }
 
 // 获取新贴
@@ -190,21 +162,7 @@ func (metaso *MetaSo) getNewPosts(ctx context.Context, size int64, excludeList [
 	if len(excludeList) > 0 {
 		matchConditions = append(matchConditions, bson.E{Key: "id", Value: bson.D{{"$nin", excludeList}}})
 	}
-	// Build find options
-	findOptions := options.Find().
-		SetSort(bson.D{{"_id", -1}}).
-		SetLimit(size)
-
-	// Execute query
-	cursor, err := mongoClient.Collection(BuzzView).Find(ctx, matchConditions, findOptions)
-	if err != nil {
-		return
-	}
-	defer cursor.Close(ctx)
-
-	// Parse results
-	err = cursor.All(context.TODO(), &result)
-	return
+	return findRecommendedSourcePosts(ctx, matchConditions, bson.D{{Key: "_id", Value: -1}}, size)
 }
 
 // 获取热帖
@@ -223,21 +181,39 @@ func (metaso *MetaSo) getHotPosts(ctx context.Context, size int64, excludeList [
 			{Key: "$lt", Value: now.Unix()},
 		},
 	})
-	// Build find options
-	findOptions := options.Find().
-		SetSort(bson.D{{"hot", -1}, {"_id", -1}}).
-		SetLimit(size)
+	return findRecommendedSourcePosts(ctx, matchConditions, bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}}, size)
+}
 
-	// Execute query
-	cursor, err := mongoClient.Collection(BuzzView).Find(ctx, matchConditions, findOptions)
+func findRecommendedSourcePosts(ctx context.Context, filter bson.D, sort bson.D, size int64) (result []*Tweet, err error) {
+	cursor, err := mongoClient.Collection(TweetCollection).Aggregate(ctx, buildRecommendedSourcePipeline(filter, sort, size), options.Aggregate().SetAllowDiskUse(true))
 	if err != nil {
 		return
 	}
 	defer cursor.Close(ctx)
 
-	// Parse results
-	err = cursor.All(context.TODO(), &result)
+	err = cursor.All(ctx, &result)
 	return
+}
+
+func buildRecommendedSourcePipeline(filter bson.D, sort bson.D, size int64) mongo.Pipeline {
+	mempoolFilter := append(bson.D{}, DataFilter...)
+	mempoolFilter = append(mempoolFilter, filter...)
+
+	return mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$sort", Value: sort}},
+		{{Key: "$limit", Value: size}},
+		{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: mongodb.MempoolPinsCollection},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: mempoolFilter}},
+				{{Key: "$sort", Value: sort}},
+				{{Key: "$limit", Value: size}},
+			}},
+		}}},
+		{{Key: "$sort", Value: sort}},
+		{{Key: "$limit", Value: size}},
+	}
 }
 
 // GetRecommendedPosts retrieves a list of recommended posts
