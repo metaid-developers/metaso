@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"manindexer/database/mongodb"
 	"manindexer/pin"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -127,6 +128,8 @@ func getNewest(lastId string, size int64, listType string, metaid string, follow
 	}
 	if listType == "_id" {
 		list, err = findNewestFeedTweets(filter, size)
+	} else if listType == "hot" {
+		list, err = findHotFeedTweets(filter, size)
 	} else {
 		findOptions := options.Find()
 		findOptions.SetSort(bson.D{{Key: listType, Value: -1}})
@@ -143,49 +146,14 @@ func getNewest(lastId string, size int64, listType string, metaid string, follow
 	}
 	list, pinIdList := prepareTweetFeedItems(list)
 
-	mempoolList, err := getBuzzMempoolCount(pinIdList)
-	if err == nil {
-		for _, item := range list {
-			for _, data := range mempoolList {
-				if item.Id == data.Target && data.Path == "/protocols/paylike" {
-					item.LikeCount += 1
-				}
-				if item.Id == data.Target && data.Path == "/protocols/paycomment" {
-					item.CommentCount += 1
-				}
-				if item.Id == data.Target && data.Path == "/protocols/simpledonate" {
-					item.DonateCount += 1
-				}
-			}
-		}
-	}
-	checkMap := make(map[string]*TweetWithLike, len(list))
-	for _, item := range list {
-		checkMap[item.Id] = &TweetWithLike{Tweet: *item, Like: []string{}, Donate: []string{}}
-	}
-	likeMap, err := batchGetPayLike(pinIdList)
-	if err == nil {
-		for _, item := range list {
-			if v, ok := likeMap[item.Id]; ok {
-				checkMap[item.Id].Like = v
-			}
-		}
-	}
-	donateMap, err := batchGetSimpleDonat(pinIdList)
-	if err == nil {
-		for _, item := range list {
-			if v, ok := donateMap[item.Id]; ok {
-				checkMap[item.Id].Donate = v
-			}
-		}
-	}
-	for _, item := range list {
-		if v, ok := checkMap[item.Id]; ok {
-			listData = append(listData, v)
-		}
+	listData, err = buildTweetFeedWithEngagement(list, pinIdList)
+	if err != nil {
+		return
 	}
 	if listType == "_id" {
 		total, err = countNewestFeedTweets(totalFilter)
+	} else if listType == "hot" {
+		total, err = countHotFeedTweets(totalFilter)
 	} else {
 		total, err = mongoClient.Collection(BuzzView).CountDocuments(context.TODO(), totalFilter)
 	}
@@ -209,6 +177,30 @@ func findNewestFeedTweets(filter bson.D, size int64) (list []*Tweet, err error) 
 
 func countNewestFeedTweets(filter bson.D) (total int64, err error) {
 	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildNewestFeedTotalPipeline(filter))
+	if err != nil {
+		return
+	}
+	var totals []feedTotalResult
+	err = result.All(context.TODO(), &totals)
+	if err != nil || len(totals) == 0 {
+		return
+	}
+	total = totals[0].Total
+	return
+}
+
+func findHotFeedTweets(filter bson.D, size int64) (list []*Tweet, err error) {
+	opts := options.Aggregate().SetAllowDiskUse(true)
+	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildHotFeedPipeline(filter, size), opts)
+	if err != nil {
+		return
+	}
+	err = result.All(context.TODO(), &list)
+	return
+}
+
+func countHotFeedTweets(filter bson.D) (total int64, err error) {
+	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildHotFeedTotalPipeline(filter))
 	if err != nil {
 		return
 	}
@@ -263,6 +255,49 @@ func buildNewestFeedTotalPipeline(filter bson.D) mongo.Pipeline {
 	}
 }
 
+func buildHotFeedPipeline(filter bson.D, size int64) mongo.Pipeline {
+	sort := bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}}
+	mempoolFilter := append(bson.D{}, DataFilter...)
+	mempoolFilter = append(mempoolFilter, filter...)
+
+	return mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$sort", Value: sort}},
+		{{Key: "$limit", Value: size}},
+		{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: mongodb.MempoolPinsCollection},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: mempoolFilter}},
+				{{Key: "$sort", Value: sort}},
+				{{Key: "$limit", Value: size}},
+			}},
+		}}},
+		{{Key: "$sort", Value: sort}},
+		{{Key: "$limit", Value: size}},
+	}
+}
+
+func buildHotFeedTotalPipeline(filter bson.D) mongo.Pipeline {
+	mempoolFilter := append(bson.D{}, DataFilter...)
+	mempoolFilter = append(mempoolFilter, filter...)
+
+	return mongo.Pipeline{
+		{{Key: "$match", Value: filter}},
+		{{Key: "$count", Value: "count"}},
+		{{Key: "$unionWith", Value: bson.D{
+			{Key: "coll", Value: mongodb.MempoolPinsCollection},
+			{Key: "pipeline", Value: mongo.Pipeline{
+				{{Key: "$match", Value: mempoolFilter}},
+				{{Key: "$count", Value: "count"}},
+			}},
+		}}},
+		{{Key: "$group", Value: bson.D{
+			{Key: "_id", Value: nil},
+			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
+		}}},
+	}
+}
+
 func prepareTweetFeedItems(list []*Tweet) (dedupedList []*Tweet, pinIdList []string) {
 	seen := make(map[string]struct{}, len(list))
 	for _, item := range list {
@@ -279,6 +314,78 @@ func prepareTweetFeedItems(list []*Tweet) (dedupedList []*Tweet, pinIdList []str
 		dedupedList = append(dedupedList, item)
 	}
 	return
+}
+
+func buildTweetFeedWithEngagement(list []*Tweet, pinIdList []string) ([]*TweetWithLike, error) {
+	if len(list) == 0 {
+		return nil, nil
+	}
+
+	var mempoolList []MempoolData
+	var likeMap map[string][]string
+	var donateMap map[string][]string
+	var donateErr error
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		mempoolList, _ = getBuzzMempoolCount(pinIdList)
+	}()
+	go func() {
+		defer wg.Done()
+		likeMap, _ = batchGetPayLike(pinIdList)
+	}()
+	go func() {
+		defer wg.Done()
+		donateMap, donateErr = batchGetSimpleDonat(pinIdList)
+	}()
+	wg.Wait()
+	if donateErr != nil {
+		return nil, donateErr
+	}
+
+	if len(mempoolList) > 0 {
+		for _, item := range list {
+			for _, data := range mempoolList {
+				if item.Id == data.Target && data.Path == "/protocols/paylike" {
+					item.LikeCount += 1
+				}
+				if item.Id == data.Target && data.Path == "/protocols/paycomment" {
+					item.CommentCount += 1
+				}
+				if item.Id == data.Target && data.Path == "/protocols/simpledonate" {
+					item.DonateCount += 1
+				}
+			}
+		}
+	}
+
+	checkMap := make(map[string]*TweetWithLike, len(list))
+	for _, item := range list {
+		checkMap[item.Id] = &TweetWithLike{Tweet: *item, Like: []string{}, Donate: []string{}}
+	}
+	if len(likeMap) > 0 {
+		for _, item := range list {
+			if v, ok := likeMap[item.Id]; ok {
+				checkMap[item.Id].Like = v
+			}
+		}
+	}
+	if len(donateMap) > 0 {
+		for _, item := range list {
+			if v, ok := donateMap[item.Id]; ok {
+				checkMap[item.Id].Donate = v
+			}
+		}
+	}
+
+	listData := make([]*TweetWithLike, 0, len(list))
+	for _, item := range list {
+		if v, ok := checkMap[item.Id]; ok {
+			listData = append(listData, v)
+		}
+	}
+	return listData, nil
 }
 
 func getBuzzMempoolCount(pinIdList []string) (mempoolData []MempoolData, err error) {
