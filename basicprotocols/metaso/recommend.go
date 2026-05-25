@@ -16,6 +16,10 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
+const (
+	recommendedReadedExcludeLimit = 200
+)
+
 // GetRecommendedPostsNew
 func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string, userAddress string, size int64) (listData []*TweetWithLike, total int64, err error) {
 	if userAddress == "" {
@@ -25,23 +29,11 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 	// 推荐用户：20%
 	// 热帖比例：10%
 	// 关注用户：50%
-	//获取address所有已经看过的帖子
-	var readedList []string
 	readedLog, _ := GetUserOperationData("readed_log", userAddress)
 	if readedLog == nil {
 		readedLog = []byte{}
 	}
-	for _, item := range strings.Split(string(readedLog), ",") {
-		if item != "" {
-			arr := strings.Split(item, "_")
-			if len(arr) == 2 {
-				readedList = append(readedList, arr[0])
-			}
-		}
-	}
-	if len(readedList) > 1000 {
-		go CleanOldUserOperationData("readed_log", userAddress)
-	}
+	readedList := recentReadedPinIDs(readedLog, recommendedReadedExcludeLimit)
 	var list []*Tweet
 	// 关注用户
 	r1, _ := metaso.getFollowedPosts(ctx, userAddress, 5, readedList)
@@ -67,12 +59,7 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 	if len(list) <= 0 {
 		return
 	}
-	var pinIdList []string
-	for _, item := range list {
-		item.Content = string(item.ContentBody)
-		item.ContentBody = nil
-		pinIdList = append(pinIdList, item.Id)
-	}
+	list, pinIdList := prepareTweetFeedItems(list)
 
 	mempoolList, err := getBuzzMempoolCount(pinIdList)
 	if err == nil {
@@ -116,14 +103,62 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 		}
 	}
 	//设置为已读
-	v := []string{}
 	n := time.Now().Unix()
-	for _, pinId := range pinIdList {
-		item := fmt.Sprintf("%s_%d", pinId, n)
-		v = append(v, item)
-	}
-	go MergeUserOperationData("readed_log", userAddress, fmt.Sprintf("%s,", strings.Join(v, ",")))
+	go MergeUserOperationData("readed_log", userAddress, formatReadedPinsForMerge(pinIdList, n))
 	return
+}
+
+func recentReadedPinIDs(readedLog []byte, maxPins int) (pinIDs []string) {
+	if maxPins <= 0 || len(readedLog) == 0 {
+		return
+	}
+	seen := make(map[string]struct{}, maxPins)
+	end := len(readedLog)
+	for end > 0 {
+		for end > 0 && (readedLog[end-1] == ',' || readedLog[end-1] == '\n') {
+			end--
+		}
+		if end <= 0 {
+			break
+		}
+		start := end - 1
+		for start >= 0 && readedLog[start] != ',' {
+			start--
+		}
+		entry := string(readedLog[start+1 : end])
+		if entry != "" {
+			if pinID, ok := readedEntryPinID(entry); ok {
+				if _, exists := seen[pinID]; !exists {
+					seen[pinID] = struct{}{}
+					pinIDs = append(pinIDs, pinID)
+					if len(pinIDs) >= maxPins {
+						return
+					}
+				}
+			}
+		}
+		end = start
+	}
+	return
+}
+
+func readedEntryPinID(entry string) (string, bool) {
+	idx := strings.LastIndex(entry, "_")
+	if idx <= 0 || idx == len(entry)-1 {
+		return "", false
+	}
+	return entry[:idx], true
+}
+
+func formatReadedPinsForMerge(pinIDsNewestFirst []string, timestamp int64) string {
+	if len(pinIDsNewestFirst) == 0 {
+		return ""
+	}
+	v := make([]string, 0, len(pinIDsNewestFirst))
+	for i := len(pinIDsNewestFirst) - 1; i >= 0; i-- {
+		v = append(v, fmt.Sprintf("%s_%d", pinIDsNewestFirst[i], timestamp))
+	}
+	return fmt.Sprintf("%s,", strings.Join(v, ","))
 }
 
 // 获取某地址的关注用户帖子

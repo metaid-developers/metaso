@@ -65,7 +65,7 @@ func GetUserOperationData(collection string, key string) ([]byte, error) {
 			return nil, err
 		}
 		defer closer.Close()
-		return value, nil
+		return append([]byte(nil), value...), nil
 	}
 	return nil, nil
 }

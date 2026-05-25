@@ -854,6 +854,5 @@ func buzzViewedAdd(ctx *gin.Context) {
 		ctx.JSON(http.StatusOK, ApiError(-1, "service exception"))
 		return
 	}
-	go CleanOldUserOperationData("readed_log", req.Address) // Clean up after 10 days
 	ctx.JSON(http.StatusOK, ApiSuccess(1, "ok", nil))
 }

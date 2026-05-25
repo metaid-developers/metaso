@@ -3,6 +3,7 @@ package metaso
 import (
 	"manindexer/database/mongodb"
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -36,5 +37,41 @@ func TestBuildRecommendedSourcePipelineLimitsBranchesBeforeUnion(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildRecommendedSourcePipeline() = %#v, want %#v", got, want)
+	}
+}
+
+func TestRecentReadedPinIDsKeepsLatestUniquePins(t *testing.T) {
+	readedLog := []byte("old_1,dup_2,other_3,dup_4,new_5,")
+
+	got := recentReadedPinIDs(readedLog, 3)
+
+	want := []string{"new", "dup", "other"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("recentReadedPinIDs() pins = %#v, want %#v", got, want)
+	}
+}
+
+func TestRecentReadedPinIDsStopsAfterLatestUniqueLimit(t *testing.T) {
+	readedLog := []byte("old_1,older_2,newer_3,newest_4,")
+
+	got := recentReadedPinIDs(readedLog, 2)
+
+	want := []string{"newest", "newer"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("recentReadedPinIDs() pins = %#v, want %#v", got, want)
+	}
+}
+
+func TestFormatReadedPinsForMergeWritesOldestToNewest(t *testing.T) {
+	pinIDsNewestFirst := []string{"new", "middle", "old"}
+
+	got := formatReadedPinsForMerge(pinIDsNewestFirst, 1779672161)
+
+	want := "old_1779672161,middle_1779672161,new_1779672161,"
+	if got != want {
+		t.Fatalf("formatReadedPinsForMerge() = %q, want %q", got, want)
+	}
+	if strings.Contains(got, "new_1779672161,middle") {
+		t.Fatalf("formatReadedPinsForMerge() wrote newest first: %q", got)
 	}
 }
