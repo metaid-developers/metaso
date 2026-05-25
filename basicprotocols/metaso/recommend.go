@@ -35,25 +35,38 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 	}
 	readedList := recentReadedPinIDs(readedLog, recommendedReadedExcludeLimit)
 	var list []*Tweet
-	// 关注用户
-	r1, _ := metaso.getFollowedPosts(ctx, userAddress, 5, readedList)
-	if r1 != nil {
-		list = append(list, r1...)
+	sourceLists := make([][]*Tweet, 4)
+	sourceFetchers := []func() []*Tweet{
+		func() []*Tweet {
+			items, _ := metaso.getFollowedPosts(ctx, userAddress, 5, readedList)
+			return items
+		},
+		func() []*Tweet {
+			items, _ := metaso.getRecommendedPosts(ctx, 2, readedList)
+			return items
+		},
+		func() []*Tweet {
+			items, _ := metaso.getHotPosts(ctx, 1, readedList)
+			return items
+		},
+		func() []*Tweet {
+			items, _ := metaso.getNewPosts(ctx, 1, readedList)
+			return items
+		},
 	}
-	// 推荐用户
-	r2, _ := metaso.getRecommendedPosts(ctx, 2, readedList)
-	if r2 != nil {
-		list = append(list, r2...)
+	var wg sync.WaitGroup
+	wg.Add(len(sourceFetchers))
+	for i, fetch := range sourceFetchers {
+		go func(i int, fetch func() []*Tweet) {
+			defer wg.Done()
+			sourceLists[i] = fetch()
+		}(i, fetch)
 	}
-	// 热帖比例
-	r3, _ := metaso.getHotPosts(ctx, 1, readedList)
-	if r3 != nil {
-		list = append(list, r3...)
-	}
-	// 新贴比例
-	r4, _ := metaso.getNewPosts(ctx, 1, readedList)
-	if r4 != nil {
-		list = append(list, r4...)
+	wg.Wait()
+	for _, items := range sourceLists {
+		if len(items) > 0 {
+			list = append(list, items...)
+		}
 	}
 	// 如果没有数据，返回空
 	if len(list) <= 0 {
@@ -61,8 +74,30 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 	}
 	list, pinIdList := prepareTweetFeedItems(list)
 
-	mempoolList, err := getBuzzMempoolCount(pinIdList)
-	if err == nil {
+	var mempoolList []MempoolData
+	var likeMap map[string][]string
+	var donateMap map[string][]string
+	var donateErr error
+	wg = sync.WaitGroup{}
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		mempoolList, _ = getBuzzMempoolCount(pinIdList)
+	}()
+	go func() {
+		defer wg.Done()
+		likeMap, _ = batchGetPayLike(pinIdList)
+	}()
+	go func() {
+		defer wg.Done()
+		donateMap, donateErr = batchGetSimpleDonat(pinIdList)
+	}()
+	wg.Wait()
+	if donateErr != nil {
+		err = donateErr
+	}
+
+	if len(mempoolList) > 0 {
 		for _, item := range list {
 			for _, data := range mempoolList {
 				if item.Id == data.Target && data.Path == "/protocols/paylike" {
@@ -81,16 +116,14 @@ func (metaso *MetaSo) GetRecommendedPostsNew(ctx context.Context, lastId string,
 	for _, item := range list {
 		checkMap[item.Id] = &TweetWithLike{Tweet: *item, Like: []string{}, Donate: []string{}}
 	}
-	likeMap, err := batchGetPayLike(pinIdList)
-	if err == nil {
+	if len(likeMap) > 0 {
 		for _, item := range list {
 			if v, ok := likeMap[item.Id]; ok {
 				checkMap[item.Id].Like = v
 			}
 		}
 	}
-	donateMap, err := batchGetSimpleDonat(pinIdList)
-	if err == nil {
+	if len(donateMap) > 0 {
 		for _, item := range list {
 			if v, ok := donateMap[item.Id]; ok {
 				checkMap[item.Id].Donate = v
