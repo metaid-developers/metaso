@@ -159,8 +159,11 @@ func TestBuildNewestFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 		{{Key: "$unionWith", Value: bson.D{
 			{Key: "coll", Value: mongodb.MempoolPinsCollection},
 			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
 				{{Key: "$sort", Value: bson.D{{Key: "_id", Value: -1}}}},
+				buildConfirmedTweetLookupStage(),
+				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
+				{{Key: "$unset", Value: "confirmedTweet"}},
 				{{Key: "$limit", Value: int64(10)}},
 			}},
 		}}},
@@ -188,7 +191,9 @@ func TestBuildNewestFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T)
 		{{Key: "$unionWith", Value: bson.D{
 			{Key: "coll", Value: mongodb.MempoolPinsCollection},
 			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
+				buildConfirmedTweetLookupStage(),
+				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
 				{{Key: "$count", Value: "count"}},
 			}},
 		}}},
@@ -205,11 +210,16 @@ func TestBuildNewestFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T)
 
 func TestBuildHotFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 	cursor := primitive.NewObjectID()
-	filter := bson.D{
-		{Key: "blocked", Value: false},
-		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
-		{Key: "timestamp", Value: bson.D{{Key: "$gt", Value: int64(1779595551)}, {Key: "$lt", Value: int64(1779681951)}}},
-	}
+	filter := appendFeedCursorFilter(
+		bson.D{
+			{Key: "blocked", Value: false},
+			{Key: "timestamp", Value: bson.D{{Key: "$gt", Value: int64(1779595551)}, {Key: "$lt", Value: int64(1779681951)}}},
+		},
+		cursor,
+		"hot",
+		7,
+		true,
+	)
 	sort := bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}}
 
 	got := buildHotFeedPipeline(filter, 10)
@@ -221,8 +231,11 @@ func TestBuildHotFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 		{{Key: "$unionWith", Value: bson.D{
 			{Key: "coll", Value: mongodb.MempoolPinsCollection},
 			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
 				{{Key: "$sort", Value: sort}},
+				buildConfirmedTweetLookupStage(),
+				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
+				{{Key: "$unset", Value: "confirmedTweet"}},
 				{{Key: "$limit", Value: int64(10)}},
 			}},
 		}}},
@@ -249,7 +262,9 @@ func TestBuildHotFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T) {
 		{{Key: "$unionWith", Value: bson.D{
 			{Key: "coll", Value: mongodb.MempoolPinsCollection},
 			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: append(DataFilter, filter...)}},
+				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
+				buildConfirmedTweetLookupStage(),
+				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
 				{{Key: "$count", Value: "count"}},
 			}},
 		}}},
@@ -261,5 +276,105 @@ func TestBuildHotFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildHotFeedTotalPipeline() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAppendFeedCursorFilterHotUsesCompoundSortCursor(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	base := bson.D{{Key: "blocked", Value: false}}
+
+	got := appendFeedCursorFilter(base, cursor, "hot", 7, true)
+
+	want := bson.D{
+		{Key: "blocked", Value: false},
+		{Key: "$or", Value: bson.A{
+			bson.D{{Key: "hot", Value: bson.D{{Key: "$lt", Value: 7}}}},
+			bson.D{
+				{Key: "hot", Value: 7},
+				{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
+			},
+		}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("appendFeedCursorFilter() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAppendFeedCursorFilterNewestUsesIdCursor(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	base := bson.D{{Key: "blocked", Value: false}}
+
+	got := appendFeedCursorFilter(base, cursor, "_id", 0, false)
+
+	want := bson.D{
+		{Key: "blocked", Value: false},
+		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("appendFeedCursorFilter() = %#v, want %#v", got, want)
+	}
+}
+
+func TestAppendFeedCursorFilterHotFallsBackToIdCursorWhenCursorHotMissing(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	base := bson.D{{Key: "blocked", Value: false}}
+
+	got := appendFeedCursorFilter(base, cursor, "hot", 0, false)
+
+	want := bson.D{
+		{Key: "blocked", Value: false},
+		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("appendFeedCursorFilter() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildMempoolFeedFilterCombinesPathAndCursorOrWithAnd(t *testing.T) {
+	cursor := primitive.NewObjectID()
+	feedFilter := appendFeedCursorFilter(bson.D{{Key: "blocked", Value: false}}, cursor, "hot", 7, true)
+
+	got := buildMempoolFeedFilter(feedFilter)
+
+	want := bson.D{{Key: "$and", Value: bson.A{DataFilter, feedFilter}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildMempoolFeedFilter() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildVisibleMempoolFeedPipelineExcludesConfirmedTweetsBeforeLimit(t *testing.T) {
+	filter := bson.D{{Key: "blocked", Value: false}}
+	sort := bson.D{{Key: "_id", Value: -1}}
+
+	got := buildVisibleMempoolFeedPipeline(filter, sort, 10)
+
+	wantPrefix := mongo.Pipeline{
+		{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
+		{{Key: "$sort", Value: sort}},
+		buildConfirmedTweetLookupStage(),
+		{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
+		{{Key: "$unset", Value: "confirmedTweet"}},
+		{{Key: "$limit", Value: int64(10)}},
+	}
+	if !reflect.DeepEqual(got, wantPrefix) {
+		t.Fatalf("buildVisibleMempoolFeedPipeline() = %#v, want %#v", got, wantPrefix)
+	}
+}
+
+func TestBuildConfirmedTweetLookupStageUsesExistenceOnlyLookup(t *testing.T) {
+	got := buildConfirmedTweetLookupStage()
+
+	want := bson.D{{Key: "$lookup", Value: bson.D{
+		{Key: "from", Value: TweetCollection},
+		{Key: "let", Value: bson.D{{Key: "pinId", Value: "$id"}}},
+		{Key: "pipeline", Value: mongo.Pipeline{
+			{{Key: "$match", Value: bson.D{{Key: "$expr", Value: bson.D{{Key: "$eq", Value: bson.A{"$id", "$$pinId"}}}}}}},
+			{{Key: "$project", Value: bson.D{{Key: "_id", Value: 1}}}},
+			{{Key: "$limit", Value: int64(1)}},
+		}},
+		{Key: "as", Value: "confirmedTweet"},
+	}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildConfirmedTweetLookupStage() = %#v, want %#v", got, want)
 	}
 }
