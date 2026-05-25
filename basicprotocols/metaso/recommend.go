@@ -181,11 +181,19 @@ func (metaso *MetaSo) getHotPosts(ctx context.Context, size int64, excludeList [
 			{Key: "$lt", Value: now.Unix()},
 		},
 	})
-	return findRecommendedSourcePosts(ctx, matchConditions, bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}}, size)
+	return findRecommendedSourcePostsWithHint(ctx, matchConditions, bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}}, size, "timestamp_1")
 }
 
 func findRecommendedSourcePosts(ctx context.Context, filter bson.D, sort bson.D, size int64) (result []*Tweet, err error) {
-	cursor, err := mongoClient.Collection(TweetCollection).Aggregate(ctx, buildRecommendedSourcePipeline(filter, sort, size), options.Aggregate().SetAllowDiskUse(true))
+	return findRecommendedSourcePostsWithHint(ctx, filter, sort, size, nil)
+}
+
+func findRecommendedSourcePostsWithHint(ctx context.Context, filter bson.D, sort bson.D, size int64, hint any) (result []*Tweet, err error) {
+	aggregateOptions := options.Aggregate().SetAllowDiskUse(true)
+	if hint != nil {
+		aggregateOptions.SetHint(hint)
+	}
+	cursor, err := mongoClient.Collection(TweetCollection).Aggregate(ctx, buildRecommendedSourcePipeline(filter, sort, size), aggregateOptions)
 	if err != nil {
 		return
 	}

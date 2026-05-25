@@ -103,6 +103,9 @@ func createIndex(mongoClient *mongo.Database) {
 	for _, index := range recommendedFeedIndexes() {
 		mongo_util.CreateIndexIfNotExists(mongoClient, index.Collection, index.Name, index.Keys, false)
 	}
+	for _, index := range deprecatedRecommendedFeedIndexes() {
+		mongo_util.DeleteIndex(mongoClient, index.Collection, index.Name)
+	}
 	//payLike
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetLikeCollection, "pinid_1", bson.D{{Key: "pinid", Value: 1}}, true)
 	mongo_util.CreateIndexIfNotExists(mongoClient, TweetLikeCollection, "liketopinid_1", bson.D{{Key: "liketopinid", Value: 1}}, false)
@@ -193,11 +196,6 @@ func recommendedFeedIndexes() []metasoIndexSpec {
 			Keys:       bson.D{{Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
 		},
 		{
-			Collection: TweetCollection,
-			Name:       "hot__id_desc_timestamp",
-			Keys:       bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
-		},
-		{
 			Collection: mongodb.MempoolPinsCollection,
 			Name:       "path_metaid__id_desc",
 			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "metaid", Value: 1}, {Key: "_id", Value: -1}},
@@ -212,10 +210,18 @@ func recommendedFeedIndexes() []metasoIndexSpec {
 			Name:       "path_blocked__id_desc",
 			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
 		},
+	}
+}
+
+func deprecatedRecommendedFeedIndexes() []metasoIndexSpec {
+	return []metasoIndexSpec{
+		{
+			Collection: TweetCollection,
+			Name:       "hot__id_desc_timestamp",
+		},
 		{
 			Collection: mongodb.MempoolPinsCollection,
 			Name:       "path_hot__id_desc_timestamp",
-			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
 		},
 	}
 }

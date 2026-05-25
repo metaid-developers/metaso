@@ -40,11 +40,6 @@ func TestRecommendedFeedIndexesMatchSourceQueries(t *testing.T) {
 			Keys:       bson.D{{Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
 		},
 		{
-			Collection: TweetCollection,
-			Name:       "hot__id_desc_timestamp",
-			Keys:       bson.D{{Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
-		},
-		{
 			Collection: mongodb.MempoolPinsCollection,
 			Name:       "path_metaid__id_desc",
 			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "metaid", Value: 1}, {Key: "_id", Value: -1}},
@@ -59,14 +54,28 @@ func TestRecommendedFeedIndexesMatchSourceQueries(t *testing.T) {
 			Name:       "path_blocked__id_desc",
 			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "blocked", Value: 1}, {Key: "_id", Value: -1}},
 		},
-		{
-			Collection: mongodb.MempoolPinsCollection,
-			Name:       "path_hot__id_desc_timestamp",
-			Keys:       bson.D{{Key: "path", Value: 1}, {Key: "hot", Value: -1}, {Key: "_id", Value: -1}, {Key: "timestamp", Value: 1}},
-		},
 	}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("recommendedFeedIndexes() = %#v, want %#v", got, want)
+	}
+}
+
+func TestDeprecatedRecommendedFeedIndexesDropsPlannerMisleadingHotIndexes(t *testing.T) {
+	got := deprecatedRecommendedFeedIndexes()
+
+	want := []metasoIndexSpec{
+		{
+			Collection: TweetCollection,
+			Name:       "hot__id_desc_timestamp",
+		},
+		{
+			Collection: mongodb.MempoolPinsCollection,
+			Name:       "path_hot__id_desc_timestamp",
+		},
+	}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("deprecatedRecommendedFeedIndexes() = %#v, want %#v", got, want)
 	}
 }
