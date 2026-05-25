@@ -27,6 +27,7 @@ func updateMetaidPinId(item *pin.MetaIdDataValue) (err error) {
 	filter := bson.M{"createaddress": item.Address}
 	findOptions := options.FindOne()
 	findOptions.SetSort(bson.D{{Key: "_id", Value: 1}})
+	findOptions.SetProjection(bson.D{{Key: "id", Value: 1}})
 	var pinNode pin.PinInscription
 	err = mongoClient.Collection(PinsCollection).FindOne(context.TODO(), filter, findOptions).Decode(&pinNode)
 	if err != nil {

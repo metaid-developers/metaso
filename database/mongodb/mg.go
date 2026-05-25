@@ -89,6 +89,9 @@ func connectMongoDb() {
 	createIndexIfNotExists(mongoClient, PinsCollection, "address_status_1", bson.D{{Key: "address", Value: 1}, {Key: "status", Value: 1}}, false)
 	createIndexIfNotExists(mongoClient, PinsCollection, "host_1", bson.D{{Key: "host", Value: 1}}, false)
 	createIndexIfNotExists(mongoClient, PinsCollection, "genesisheight_chainname_1", bson.D{{Key: "genesisheight", Value: 1}, {Key: "chainname", Value: 1}}, false)
+	for _, indexSpec := range pinLookupIndexes() {
+		createIndexIfNotExists(mongoClient, PinsCollection, indexSpec.Name, indexSpec.Keys, indexSpec.Unique)
+	}
 	//PinTransferHistory
 	createIndexIfNotExists(mongoClient, PinTransferHistory, "transfertx_1", bson.D{{Key: "transfertx", Value: 1}}, true)
 	createIndexIfNotExists(mongoClient, PinTransferHistory, "pinid_1", bson.D{{Key: "pinid", Value: 1}}, false)
@@ -276,6 +279,14 @@ func createMrc20UtxoView() {
 			},
 		)
 	}
+}
+
+func pinLookupIndexes() []indexSpec {
+	return []indexSpec{{
+		Name:   "createaddress__id_asc",
+		Keys:   bson.D{{Key: "createaddress", Value: 1}, {Key: "_id", Value: 1}},
+		Unique: false,
+	}}
 }
 
 func UpdateSyncLastIdLog(key string, id primitive.ObjectID) (err error) {
