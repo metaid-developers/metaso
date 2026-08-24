@@ -2,11 +2,13 @@ package metaso
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"manindexer/common"
 	"manindexer/database/mongodb"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/yanyiwu/gojieba"
@@ -34,6 +36,7 @@ func (metaso *MetaSo) Synchronization() {
 	jiebax = gojieba.NewJieba(jiebaPath, hmmPath, userPath, idfPath, stopPath)
 
 	defer jiebax.Free()
+	metaso.backfillSimpleNote()
 	for {
 		metaso.synchTweet()
 		metaso.synchTweetLike()
@@ -221,25 +224,8 @@ func (metaso *MetaSo) synchTweet() (err error) {
 		if onlyHost != "" && doc.Host != onlyHost {
 			continue
 		}
-		if doc.Path == "/protocols/simplebuzz" {
-			doc.Keywords = jiebax.Cut(string(doc.ContentBody), true)
-		}
-		//check blocked
-		hostKey := fmt.Sprintf("host_%s", doc.Host)
-		metaidKey := fmt.Sprintf("metaid_%s", doc.CreateMetaId)
-		pinidKey := fmt.Sprintf("pinid_%s", doc.Id)
-		if _, ok := common.BlockedData[hostKey]; ok {
-			doc.Blocked = true
-		}
-		if _, ok := common.BlockedData[metaidKey]; ok {
-			doc.Blocked = true
-		}
-		if _, ok := common.BlockedData[pinidKey]; ok {
-			doc.Blocked = true
-		}
-		if _, ok := common.RecommendedAuthor[doc.Address]; ok {
-			doc.IsRecommended = true
-		}
+		doc.Keywords = buzzKeywords(doc)
+		prepareTweetDoc(doc)
 		insertDocs = append(insertDocs, doc)
 		if mongodb.CompareObjectIDs(doc.MogoID, lastId) > 0 {
 			lastId = doc.MogoID
@@ -253,4 +239,93 @@ func (metaso *MetaSo) synchTweet() (err error) {
 	}
 	mongodb.UpdateSyncLastIdLog("tweet", lastId)
 	return
+}
+
+// prepareTweetDoc flags blocked tweets and recommended authors on a tweet doc
+// before it is written to TweetCollection.
+func prepareTweetDoc(doc *Tweet) {
+	hostKey := fmt.Sprintf("host_%s", doc.Host)
+	metaidKey := fmt.Sprintf("metaid_%s", doc.CreateMetaId)
+	pinidKey := fmt.Sprintf("pinid_%s", doc.Id)
+	if _, ok := common.BlockedData[hostKey]; ok {
+		doc.Blocked = true
+	}
+	if _, ok := common.BlockedData[metaidKey]; ok {
+		doc.Blocked = true
+	}
+	if _, ok := common.BlockedData[pinidKey]; ok {
+		doc.Blocked = true
+	}
+	if _, ok := common.RecommendedAuthor[doc.Address]; ok {
+		doc.IsRecommended = true
+	}
+}
+
+// buzzKeywords returns jieba keywords for full-text search. SimpleBuzz bodies
+// are cut as a whole; SimpleNote bodies are JSON, so only the textual fields
+// (title/subtitle/content) are cut to keep JSON keys out of the index.
+func buzzKeywords(doc *Tweet) (keywords []string) {
+	if jiebax == nil {
+		return
+	}
+	if doc.Path == "/protocols/simplenote" {
+		var note struct {
+			Title    string `json:"title"`
+			Subtitle string `json:"subtitle"`
+			Content  string `json:"content"`
+		}
+		if err := json.Unmarshal(doc.ContentBody, &note); err != nil {
+			return
+		}
+		text := strings.Join([]string{note.Title, note.Subtitle, note.Content}, "\n")
+		return jiebax.Cut(text, true)
+	}
+	if doc.Path == "/protocols/simplebuzz" {
+		return jiebax.Cut(string(doc.ContentBody), true)
+	}
+	return
+}
+
+// backfillSimpleNote is a one-time migration that copies historical
+// /protocols/simplenote pins into TweetCollection. synchTweet only processes
+// pins newer than the "tweet" cursor, so pins created before simplenote was
+// added to DataFilter would otherwise never enter the buzz collections. The
+// protocol is new, so the full set is small; upserts keyed on pin id keep the
+// routine idempotent and safe to re-run.
+func (metaso *MetaSo) backfillSimpleNote() {
+	const flagKey = "simplenote_backfill"
+	done, err := mongodb.GetSyncLastNumber(flagKey)
+	if err != nil {
+		return
+	}
+	if done == 1 {
+		return
+	}
+	filter := bson.D{{Key: "path", Value: "/protocols/simplenote"}}
+	cursor, err := mongoClient.Collection(mongodb.PinsCollection).Find(context.TODO(), filter)
+	if err != nil {
+		return
+	}
+	var pinList []*Tweet
+	if err := cursor.All(context.TODO(), &pinList); err != nil {
+		return
+	}
+	if len(pinList) > 0 {
+		var writes []mongo.WriteModel
+		for _, doc := range pinList {
+			doc.Keywords = buzzKeywords(doc)
+			prepareTweetDoc(doc)
+			update := mongo.NewUpdateOneModel().
+				SetFilter(bson.M{"id": doc.Id}).
+				SetUpdate(bson.M{"$setOnInsert": doc}).
+				SetUpsert(true)
+			writes = append(writes, update)
+		}
+		if _, err := mongoClient.Collection(TweetCollection).BulkWrite(context.TODO(), writes); err != nil {
+			log.Printf("backfillSimpleNote fail: %v", err)
+			return
+		}
+	}
+	mongodb.UpdateSyncLastNumber(flagKey, 1)
+	log.Printf("backfillSimpleNote done, %d pins", len(pinList))
 }
