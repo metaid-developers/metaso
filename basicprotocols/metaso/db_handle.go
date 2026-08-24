@@ -51,6 +51,7 @@ var DataFilter = bson.D{
 		bson.D{{Key: "path", Value: "/protocols/banana"}},
 		bson.D{{Key: "path", Value: "/protocols/paybuzz"}},
 		bson.D{{Key: "path", Value: "/protocols/subscribebuzz"}},
+		bson.D{{Key: "path", Value: "/protocols/simplenote"}},
 	}},
 }
 
@@ -231,19 +232,24 @@ func createBuzzView() {
 	if err != nil {
 		return
 	}
-	if len(views) == 0 {
-		mongoClient.CreateView(
-			context.Background(),
-			BuzzView,
-			TweetCollection,
-			bson.A{
-				bson.D{{Key: "$unionWith", Value: bson.D{
-					{Key: "coll", Value: mongodb.MempoolPinsCollection},
-					{Key: "pipeline", Value: mongo.Pipeline{
-						{{Key: "$match", Value: DataFilter}},
-					}},
-				}}},
-			},
-		)
+	// The view pipeline embeds DataFilter, so an existing view keeps the
+	// definition from the code version that created it. Drop and recreate on
+	// every startup so protocol list changes (e.g. simplenote) take effect on
+	// already-deployed databases. Views hold no data; recreation is instant.
+	if len(views) > 0 {
+		mongoClient.Collection(BuzzView).Drop(context.Background())
 	}
+	mongoClient.CreateView(
+		context.Background(),
+		BuzzView,
+		TweetCollection,
+		bson.A{
+			bson.D{{Key: "$unionWith", Value: bson.D{
+				{Key: "coll", Value: mongodb.MempoolPinsCollection},
+				{Key: "pipeline", Value: mongo.Pipeline{
+					{{Key: "$match", Value: DataFilter}},
+				}},
+			}}},
+		},
+	)
 }
