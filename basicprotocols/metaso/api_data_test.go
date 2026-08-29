@@ -176,38 +176,6 @@ func TestBuildNewestFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 	}
 }
 
-func TestBuildNewestFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T) {
-	cursor := primitive.NewObjectID()
-	filter := bson.D{
-		{Key: "blocked", Value: false},
-		{Key: "_id", Value: bson.D{{Key: "$lt", Value: cursor}}},
-	}
-
-	got := buildNewestFeedTotalPipeline(filter)
-
-	want := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$count", Value: "count"}},
-		{{Key: "$unionWith", Value: bson.D{
-			{Key: "coll", Value: mongodb.MempoolPinsCollection},
-			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
-				buildConfirmedTweetLookupStage(),
-				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
-				{{Key: "$count", Value: "count"}},
-			}},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
-		}}},
-	}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("buildNewestFeedTotalPipeline() = %#v, want %#v", got, want)
-	}
-}
-
 func TestBuildHotFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 	cursor := primitive.NewObjectID()
 	filter := appendFeedCursorFilter(
@@ -245,37 +213,6 @@ func TestBuildHotFeedPipelineLimitsBranchesBeforeUnion(t *testing.T) {
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildHotFeedPipeline() = %#v, want %#v", got, want)
-	}
-}
-
-func TestBuildHotFeedTotalPipelineCountsBranchesWithoutBuzzView(t *testing.T) {
-	filter := bson.D{
-		{Key: "blocked", Value: false},
-		{Key: "timestamp", Value: bson.D{{Key: "$gt", Value: int64(1779595551)}, {Key: "$lt", Value: int64(1779681951)}}},
-	}
-
-	got := buildHotFeedTotalPipeline(filter)
-
-	want := mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$count", Value: "count"}},
-		{{Key: "$unionWith", Value: bson.D{
-			{Key: "coll", Value: mongodb.MempoolPinsCollection},
-			{Key: "pipeline", Value: mongo.Pipeline{
-				{{Key: "$match", Value: buildMempoolFeedFilter(filter)}},
-				buildConfirmedTweetLookupStage(),
-				{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
-				{{Key: "$count", Value: "count"}},
-			}},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
-		}}},
-	}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("buildHotFeedTotalPipeline() = %#v, want %#v", got, want)
 	}
 }
 

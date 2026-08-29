@@ -158,19 +158,17 @@ func getNewest(lastId string, size int64, listType string, metaid string, follow
 	if err != nil {
 		return
 	}
-	if listType == "_id" {
-		total, err = countNewestFeedTweets(totalFilter)
-	} else if listType == "hot" {
-		total, err = countHotFeedTweets(totalFilter)
+	if listType == "_id" || listType == "hot" {
+		// Totals count confirmed tweets only. Union-counting the mempool ran a
+		// per-pin dedup $lookup over the whole mempool backlog on every page
+		// request, which grew to seconds; feed paging is cursor-driven, so the
+		// missing unconfirmed entries never affect pagination.
+		total, err = mongoClient.Collection(TweetCollection).CountDocuments(context.TODO(), totalFilter)
 	} else {
 		total, err = mongoClient.Collection(BuzzView).CountDocuments(context.TODO(), totalFilter)
 	}
 
 	return
-}
-
-type feedTotalResult struct {
-	Total int64 `bson:"total"`
 }
 
 func appendFeedCursorFilter(filter bson.D, objectId primitive.ObjectID, listType string, cursorHot int, cursorHotFound bool) bson.D {
@@ -211,20 +209,6 @@ func findNewestFeedTweets(filter bson.D, size int64) (list []*Tweet, err error) 
 	return
 }
 
-func countNewestFeedTweets(filter bson.D) (total int64, err error) {
-	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildNewestFeedTotalPipeline(filter))
-	if err != nil {
-		return
-	}
-	var totals []feedTotalResult
-	err = result.All(context.TODO(), &totals)
-	if err != nil || len(totals) == 0 {
-		return
-	}
-	total = totals[0].Total
-	return
-}
-
 func findHotFeedTweets(filter bson.D, size int64) (list []*Tweet, err error) {
 	opts := options.Aggregate().SetAllowDiskUse(true)
 	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildHotFeedPipeline(filter, size), opts)
@@ -232,20 +216,6 @@ func findHotFeedTweets(filter bson.D, size int64) (list []*Tweet, err error) {
 		return
 	}
 	err = result.All(context.TODO(), &list)
-	return
-}
-
-func countHotFeedTweets(filter bson.D) (total int64, err error) {
-	result, err := mongoClient.Collection(TweetCollection).Aggregate(context.TODO(), buildHotFeedTotalPipeline(filter))
-	if err != nil {
-		return
-	}
-	var totals []feedTotalResult
-	err = result.All(context.TODO(), &totals)
-	if err != nil || len(totals) == 0 {
-		return
-	}
-	total = totals[0].Total
 	return
 }
 
@@ -262,23 +232,6 @@ func buildNewestFeedPipeline(filter bson.D, size int64) mongo.Pipeline {
 		}}},
 		{{Key: "$sort", Value: bson.D{{Key: "_id", Value: -1}}}},
 		{{Key: "$limit", Value: size}},
-	}
-}
-
-func buildNewestFeedTotalPipeline(filter bson.D) mongo.Pipeline {
-	mempoolPipeline := buildVisibleMempoolTotalPipeline(filter)
-
-	return mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$count", Value: "count"}},
-		{{Key: "$unionWith", Value: bson.D{
-			{Key: "coll", Value: mongodb.MempoolPinsCollection},
-			{Key: "pipeline", Value: mempoolPipeline},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
-		}}},
 	}
 }
 
@@ -299,23 +252,6 @@ func buildHotFeedPipeline(filter bson.D, size int64) mongo.Pipeline {
 	}
 }
 
-func buildHotFeedTotalPipeline(filter bson.D) mongo.Pipeline {
-	mempoolPipeline := buildVisibleMempoolTotalPipeline(filter)
-
-	return mongo.Pipeline{
-		{{Key: "$match", Value: filter}},
-		{{Key: "$count", Value: "count"}},
-		{{Key: "$unionWith", Value: bson.D{
-			{Key: "coll", Value: mongodb.MempoolPinsCollection},
-			{Key: "pipeline", Value: mempoolPipeline},
-		}}},
-		{{Key: "$group", Value: bson.D{
-			{Key: "_id", Value: nil},
-			{Key: "total", Value: bson.D{{Key: "$sum", Value: "$count"}}},
-		}}},
-	}
-}
-
 func buildVisibleMempoolFeedPipeline(filter bson.D, sort bson.D, size int64) mongo.Pipeline {
 	mempoolFilter := buildMempoolFeedFilter(filter)
 	return mongo.Pipeline{
@@ -325,16 +261,6 @@ func buildVisibleMempoolFeedPipeline(filter bson.D, sort bson.D, size int64) mon
 		{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
 		{{Key: "$unset", Value: "confirmedTweet"}},
 		{{Key: "$limit", Value: size}},
-	}
-}
-
-func buildVisibleMempoolTotalPipeline(filter bson.D) mongo.Pipeline {
-	mempoolFilter := buildMempoolFeedFilter(filter)
-	return mongo.Pipeline{
-		{{Key: "$match", Value: mempoolFilter}},
-		buildConfirmedTweetLookupStage(),
-		{{Key: "$match", Value: bson.D{{Key: "confirmedTweet.0", Value: bson.D{{Key: "$exists", Value: false}}}}}},
-		{{Key: "$count", Value: "count"}},
 	}
 }
 
