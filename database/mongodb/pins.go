@@ -208,8 +208,6 @@ func (mg *Mongodb) GetMempoolPinPageList(page int64, size int64) (pins []*pin.Pi
 	return
 }
 func deleteMetaSoMempool(txIds []string) (err error) {
-	// filter := bson.M{"pinid": bson.M{"$in": txIds}}
-	// _, err = mongoClient.Collection("metaso_mempool").DeleteMany(context.TODO(), filter)
 	var operations []mongo.WriteModel
 	for _, id := range txIds {
 		filter := bson.M{"pinid": id}
@@ -236,11 +234,6 @@ func (mg *Mongodb) DeleteMempoolInscription(txIds []string) (err error) {
 		return
 	}
 	deleteMetaSoMempool(txIds)
-	// filter := bson.M{"id": bson.M{"$in": txIds}}
-	// _, err = mongoClient.Collection(MempoolPinsCollection).DeleteMany(context.TODO(), filter)
-	// if err != nil {
-	// 	log.Println("DeleteMempoolInscription err", err)
-	// }
 	doDeleteMempoolPins(txIds)
 	var ts []string
 	for _, id := range txIds {
@@ -250,11 +243,6 @@ func (mg *Mongodb) DeleteMempoolInscription(txIds []string) (err error) {
 		}
 		ts = append(ts, id[:index])
 	}
-	// filter2 := bson.M{"txhash": bson.M{"$in": ts}}
-	// _, err = mongoClient.Collection(MempoolTransferPinsCollection).DeleteMany(context.TODO(), filter2)
-	// if err != nil {
-	// 	log.Println("DeleteMempoolTransfer err", err)
-	// }
 	doDeleteMempoolTransfer(ts)
 	return
 }
