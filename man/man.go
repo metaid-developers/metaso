@@ -273,6 +273,13 @@ func SetCache(pinNode *pin.PinInscription) {
 	}
 }
 func handleMempoolPin(pinNode *pin.PinInscription) {
+	// A pin that is already confirmed must not re-enter the mempool store: the
+	// per-block cleanup for its confirming height has already run, so a late
+	// zmq delivery would strand the doc in mempoolpins until the periodic
+	// sweep removes it.
+	if pinList, err := DbAdapter.GetPinListByIdList([]string{pinNode.Id}); err == nil && len(pinList) > 0 {
+		return
+	}
 	if pinNode.Operation == "modify" || pinNode.Operation == "revoke" {
 		pinNode.OriginalPath = GetModifyPath(pinNode.Path)
 		pinNode.OriginalId = strings.Replace(pinNode.Path, "@", "", -1)
