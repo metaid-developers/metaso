@@ -22,11 +22,6 @@ func (mg *Mongodb) GetOneZmqTx(tx string) (data *pin.ZmqReciveTx, err error) {
 	return
 }
 func (mg *Mongodb) DeleteZmqTx(txList []string) (err error) {
-	// filter := bson.M{"tx": bson.M{"$in": txList}}
-	// _, err = mongoClient.Collection(ZmqReciveTx).DeleteMany(context.TODO(), filter)
-	// if err != nil {
-	// 	log.Println("DeleteMempoolInscription err", err)
-	// }
 	var operations []mongo.WriteModel
 	for _, id := range txList {
 		filter := bson.M{"tx": id}

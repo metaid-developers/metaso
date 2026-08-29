@@ -71,6 +71,7 @@ func main() {
 		go mrc721.Synchronization()
 	}
 	go mongodb.FixNullMetaIdPinId()
+	go mongodb.RunMempoolPinsSweep(10 * time.Minute)
 	go blockcheck.CheckRun()
 	for {
 		man.IndexerRun(common.TestNet)
