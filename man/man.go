@@ -789,21 +789,18 @@ func handlePathAndOperation(
 	if len(modifyPinIdList) <= 0 {
 		return
 	}
-	originalPins, err := DbAdapter.GetPinListByIdList(modifyPinIdList)
-	if err != nil {
-		return
+	var originalPins []*pin.PinInscription
+	if DbAdapter != nil {
+		originalPins, _ = DbAdapter.GetPinListByIdList(modifyPinIdList)
 	}
-
-	for _, mp := range originalPins {
-		originalPinMap[mp.Id] = mp
-	}
+	originalPinMap = MergeOriginalPinMap(*pinList, originalPins)
 	statusMap := getModifyPinStatus(newPinMap, originalPinMap)
 	for _, p := range *pinList {
 		pinNode := p.(*pin.PinInscription)
 		if pinNode.OriginalId == "" {
 			pinNode.OriginalId = pinNode.Id
 		}
-		if pinNode.Operation == "" || pinNode.Operation == "revoke" {
+		if pinNode.Operation == "modify" || pinNode.Operation == "revoke" {
 			if v, ok := statusMap[pinNode.Id]; ok {
 				pinNode.Status = v
 			}
@@ -848,6 +845,7 @@ func handlePathAndOperation(
 			metaIdInfoParse(pinNode, "", metaIdData)
 		}
 	}
+	*updatedData = PrepareOriginalPinUpdates(*updatedData, originalPinMap)
 }
 func createInfoAdditional(pinNode *pin.PinInscription, path string) (addition pin.MetaIdInfoAdditional) {
 	if len(path) > 7 && path[0:6] == "/info/" {
@@ -888,22 +886,10 @@ func getModifyPinStatus(curPinMap map[string]*pin.PinInscription, originalPinMap
 	for cid, np := range curPinMap {
 		id := np.OriginalId
 		if np.Operation == "modify" {
-			if _, ok := originalPinMap[id]; !ok {
-				statusMap[cid] = StatusModifyPinIdNotExist
-				continue
+			if code := ModifyPinStatus(np, originalPinMap[id]); code != 0 {
+				statusMap[cid] = code
 			}
-			if np.Address != originalPinMap[id].Address {
-				statusMap[cid] = StatusModifyPinAddrDenied
-				continue
-			}
-			if originalPinMap[id].Status == 1 {
-				statusMap[cid] = StatusModifyPinIsModifyed
-				continue
-			}
-			if originalPinMap[id].Operation == "init" {
-				statusMap[cid] = StatusModifyPinOptIsInit
-				continue
-			}
+			continue
 		} else if np.Operation == "revoke" {
 			if _, ok := originalPinMap[id]; !ok {
 				statusMap[cid] = StatusRevokePinIdNotExist

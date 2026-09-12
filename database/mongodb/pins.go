@@ -128,24 +128,45 @@ func (mg *Mongodb) AddTransferHistory(history []*pin.PinTransferHistory) (err er
 }
 func (mg *Mongodb) BatchUpdatePins(pins []*pin.PinInscription) (err error) {
 	var models []mongo.WriteModel
-	for _, pin := range pins {
-		if pin.OriginalId == "" {
-			continue
+	for _, pinNode := range pins {
+		if model := pinUpdateWriteModel(pinNode); model != nil {
+			models = append(models, model)
 		}
-		filter := bson.D{{Key: "id", Value: pin.OriginalId}, {Key: "address", Value: pin.Address}}
-		var updateInfo bson.D
-		if pin.Status != 0 {
-			updateInfo = append(updateInfo, bson.E{Key: "status", Value: pin.Status})
-		}
-		update := bson.D{{Key: "$set", Value: updateInfo}}
-		m := mongo.NewUpdateOneModel()
-		m.SetFilter(filter).SetUpdate(update)
-		models = append(models, m)
+	}
+	if len(models) == 0 {
+		return
 	}
 	bulkWriteOptions := options.BulkWrite().SetOrdered(false)
 	_, err = mongoClient.Collection(PinsCollection).BulkWrite(context.Background(), models, bulkWriteOptions)
 
 	return
+}
+
+func pinUpdateWriteModel(pinNode *pin.PinInscription) mongo.WriteModel {
+	if pinNode == nil || pinNode.OriginalId == "" {
+		return nil
+	}
+	filter := bson.D{{Key: "id", Value: pinNode.OriginalId}, {Key: "address", Value: pinNode.Address}}
+	var updateInfo bson.D
+	if pinNode.Status != 0 {
+		updateInfo = append(updateInfo, bson.E{Key: "status", Value: pinNode.Status})
+	}
+	if pinNode.Status == 1 {
+		updateInfo = append(updateInfo,
+			bson.E{Key: "contentbody", Value: pinNode.ContentBody},
+			bson.E{Key: "contentlength", Value: pinNode.ContentLength},
+			bson.E{Key: "contenttype", Value: pinNode.ContentType},
+			bson.E{Key: "contenttypedetect", Value: pinNode.ContentTypeDetect},
+			bson.E{Key: "contentsummary", Value: pinNode.ContentSummary},
+		)
+		if len(pinNode.ModifyHistory) > 0 {
+			updateInfo = append(updateInfo, bson.E{Key: "modify_history", Value: pinNode.ModifyHistory})
+		}
+	}
+	if len(updateInfo) == 0 {
+		return nil
+	}
+	return mongo.NewUpdateOneModel().SetFilter(filter).SetUpdate(bson.D{{Key: "$set", Value: updateInfo}})
 }
 func (mg *Mongodb) AddMempoolPin(pin *pin.PinInscription) (err error) {
 	hostKey := fmt.Sprintf("host_%s", pin.Host)

@@ -37,8 +37,10 @@ func (metaso *MetaSo) Synchronization() {
 
 	defer jiebax.Free()
 	metaso.backfillSimpleNote()
+	metaso.backfillPinModifyContent()
 	for {
 		metaso.synchTweet()
+		metaso.synchTweetModify()
 		metaso.synchTweetLike()
 		metaso.synchMeatsoDonate()
 		metaso.synchTweetComment()
@@ -221,23 +223,30 @@ func (metaso *MetaSo) synchTweet() (err error) {
 	onlyHost := common.Config.MetaSo.OnlyHost
 
 	for _, doc := range pinList {
+		if mongodb.CompareObjectIDs(doc.MogoID, lastId) > 0 {
+			lastId = doc.MogoID
+		}
 		if onlyHost != "" && doc.Host != onlyHost {
+			continue
+		}
+		if !shouldInsertTweet(doc) {
 			continue
 		}
 		doc.Keywords = buzzKeywords(doc)
 		prepareTweetDoc(doc)
 		insertDocs = append(insertDocs, doc)
-		if mongodb.CompareObjectIDs(doc.MogoID, lastId) > 0 {
-			lastId = doc.MogoID
+	}
+	if len(insertDocs) > 0 {
+		insertOpts := options.InsertMany().SetOrdered(false)
+		_, err1 := mongoClient.Collection(TweetCollection).InsertMany(context.TODO(), insertDocs, insertOpts)
+		if err1 != nil {
+			err = err1
+			return
 		}
 	}
-	insertOpts := options.InsertMany().SetOrdered(false)
-	_, err1 := mongoClient.Collection(TweetCollection).InsertMany(context.TODO(), insertDocs, insertOpts)
-	if err1 != nil {
-		err = err1
-		return
+	if lastId != primitive.NilObjectID {
+		mongodb.UpdateSyncLastIdLog("tweet", lastId)
 	}
-	mongodb.UpdateSyncLastIdLog("tweet", lastId)
 	return
 }
 

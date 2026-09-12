@@ -120,8 +120,10 @@ func (pd *PebbleData) DoIndexerRun(chainName string, height int64, reIndex bool)
 	// protocolsData = protocolsData[:0]
 	if len(updatedData) > 0 {
 		startTime = time.Now()
-		//DbAdapter.BatchUpdatePins(updatedData)
 		pd.Database.BatchUpdatePins(updatedData)
+		if err = DbAdapter.BatchUpdatePins(updatedData); err != nil {
+			log.Printf("BatchUpdatePins mongo: %v", err)
+		}
 		updatedData = updatedData[:0]
 		log.Println("BatchUpdatePins:", time.Since(startTime))
 	}
@@ -342,13 +344,11 @@ func (pd *PebbleData) handlePathAndOperation(
 	if len(modifyPinIdList) <= 0 {
 		return
 	}
-	originalPins, err := pd.Database.GetPinListByIdList(modifyPinIdList, 1000, false)
-	if err != nil {
-		return
+	var originalPins []*pin.PinInscription
+	if pd.Database != nil {
+		originalPins, _ = pd.Database.GetPinListByIdList(modifyPinIdList, 1000, false)
 	}
-	for _, mp := range originalPins {
-		originalPinMap[mp.Id] = mp
-	}
+	originalPinMap = MergeOriginalPinMap(*pinList, originalPins)
 	statusMap := getModifyPinStatus(newPinMap, originalPinMap)
 	for _, p := range *pinList {
 		pinNode := p.(*pin.PinInscription)
@@ -399,6 +399,7 @@ func (pd *PebbleData) handlePathAndOperation(
 			metaIdInfoParse(pinNode, "", metaIdData)
 		}
 	}
+	*updatedData = PrepareOriginalPinUpdates(*updatedData, originalPinMap)
 }
 func (pd *PebbleData) GetPinById(pinid string) (pinNode pin.PinInscription, err error) {
 	result, err := pd.Database.GetPinByKey(pinid)
