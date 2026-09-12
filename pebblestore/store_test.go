@@ -104,3 +104,66 @@ func TestPebbleMerge(t *testing.T) {
 		t.Fatalf("merged value = %q, want %q", string(v), "12")
 	}
 }
+
+func TestBatchUpdatePinsWritesLatestContentToOriginalId(t *testing.T) {
+	idx, err := NewDataBase(t.TempDir(), 4)
+	if err != nil {
+		t.Fatalf("NewDataBase err: %v", err)
+	}
+	defer idx.Close()
+
+	create := pin.PinInscription{
+		Id:            "createPinId",
+		Address:       "addr-1",
+		ContentBody:   []byte("short"),
+		ContentLength: 5,
+		ContentSummary: "short",
+	}
+	modifyDoc := pin.PinInscription{
+		Id:            "modifyPinId",
+		Address:       "addr-1",
+		ContentBody:   []byte("longer-body"),
+		ContentLength: 11,
+	}
+	if err := idx.BatchInsertPins([]pin.PinInscription{create, modifyDoc}); err != nil {
+		t.Fatalf("BatchInsertPins err: %v", err)
+	}
+
+	err = idx.BatchUpdatePins([]*pin.PinInscription{{
+		Id:            "modifyPinId",
+		OriginalId:    "createPinId",
+		Address:       "addr-1",
+		Status:        1,
+		ContentBody:   []byte("longer-body"),
+		ContentLength: 11,
+		ContentSummary: "longer-body",
+	}})
+	if err != nil {
+		t.Fatalf("BatchUpdatePins err: %v", err)
+	}
+
+	got, err := idx.GetPinInscriptionByKey("createPinId")
+	if err != nil {
+		t.Fatalf("GetPinInscriptionByKey err: %v", err)
+	}
+	if string(got.ContentBody) != "longer-body" {
+		t.Fatalf("original ContentBody = %q, want longer-body", got.ContentBody)
+	}
+	if got.ContentLength != 11 {
+		t.Fatalf("original ContentLength = %d, want 11", got.ContentLength)
+	}
+	if got.Status != 1 {
+		t.Fatalf("original Status = %d, want 1", got.Status)
+	}
+
+	kept, err := idx.GetPinInscriptionByKey("modifyPinId")
+	if err != nil {
+		t.Fatalf("modify pin lookup err: %v", err)
+	}
+	if string(kept.ContentBody) != "longer-body" {
+		t.Fatalf("modify pin should stay inserted, body = %q", kept.ContentBody)
+	}
+	if kept.Status != 0 {
+		t.Fatalf("modify pin status = %d, want 0", kept.Status)
+	}
+}

@@ -66,26 +66,26 @@ func (db *Database) UpdateTransferPin(trasferMap map[string]*pin.PinTransferInfo
 	return
 }
 func (db *Database) BatchUpdatePins(pins []*pin.PinInscription) (err error) {
-	for _, oldPin := range pins {
-		if oldPin.OriginalId == "" || oldPin.Status == 0 {
+	var updateList []pin.PinInscription
+	for _, src := range pins {
+		if src == nil || src.OriginalId == "" || src.Status == 0 {
 			continue
 		}
-		dbshard := db.getShard(oldPin.Id)
-		val, closer, err := dbshard.Get([]byte(oldPin.Id))
-		if err == nil {
-			var newPin pin.PinInscription
-			err := sonic.Unmarshal(val, &newPin)
-			if err == nil {
-				newPin.Status = oldPin.Status
-			}
-			newVal, err := sonic.Marshal(newPin)
-			if err == nil {
-				dbshard.Set([]byte(newPin.Id), newVal, pebble.Sync)
-			}
-			closer.Close()
+		original, getErr := db.GetPinInscriptionByKey(src.OriginalId)
+		if getErr != nil || original.Id == "" {
+			continue
 		}
+		if src.Status == 1 {
+			pin.ApplyModifyContent(&original, src)
+		} else {
+			original.Status = src.Status
+		}
+		updateList = append(updateList, original)
 	}
-	return
+	if len(updateList) == 0 {
+		return
+	}
+	return db.BatchInsertPins(updateList)
 }
 func (db *Database) SetAllPins_BAK(height int64, pinList []interface{}, batchSize int) (err error) {
 	num := len(pinList)

@@ -62,6 +62,7 @@ type PinInscription struct {
 	Host          string   `json:"host"`
 	Blocked       bool     `json:"blocked"`
 	IsRecommended bool     `json:"is_recommended"`
+	ModifyHistory []string `json:"modify_history,omitempty" bson:"modify_history,omitempty"`
 }
 type PinTransferInfo struct {
 	Address     string `json:"address"`
