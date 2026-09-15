@@ -10,6 +10,7 @@ import (
 	"manindexer/common"
 
 	"net/http"
+	"runtime/debug"
 
 	"manindexer/database"
 
@@ -195,22 +196,31 @@ func doZmqRun(chain string, indexer adapter.Indexer) {
 	msg := make(chan pin.MempollChanMsg)
 	go indexer.ZmqRun(msg)
 	for x := range msg {
-		for _, pinNode := range x.PinList {
-			onlyHost := common.Config.MetaSo.OnlyHost
-			if onlyHost != "" && pinNode.Host != onlyHost {
-				continue
+		func() {
+			// A single malformed pin must not kill the whole indexer process;
+			// log the panic and keep consuming subsequent messages.
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("[WARN] recovered panic in mempool processing (chain %s): %v\n%s", chain, r, debug.Stack())
+				}
+			}()
+			for _, pinNode := range x.PinList {
+				onlyHost := common.Config.MetaSo.OnlyHost
+				if onlyHost != "" && pinNode.Host != onlyHost {
+					continue
+				}
+				go handleUserInfo(pinNode)
+				if !pinNode.IsTransfered {
+					handleMempoolPin(pinNode)
+				} else if pinNode.IsTransfered {
+					handleMempoolTransferPin(pinNode)
+				}
 			}
-			go handleUserInfo(pinNode)
-			if !pinNode.IsTransfered {
-				handleMempoolPin(pinNode)
-			} else if pinNode.IsTransfered {
-				handleMempoolTransferPin(pinNode)
+			list := []interface{}{x.Tx}
+			if len(list) > 0 {
+				mm.CheckMempoolHadle(chain, list)
 			}
-		}
-		list := []interface{}{x.Tx}
-		if len(list) > 0 {
-			mm.CheckMempoolHadle(chain, list)
-		}
+		}()
 	}
 }
 func findModifyPath(pinNode *pin.PinInscription) (string, error) {
