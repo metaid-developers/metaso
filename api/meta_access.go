@@ -89,8 +89,8 @@ func accessContentDecrypt(ctx *gin.Context) {
 
 	}
 	pinNode, err := man.DbAdapter.GetPinByNumberOrId(req.PinId)
-	if err != nil {
-		if err == mongo.ErrNoDocuments {
+	if err != nil || pinNode == nil {
+		if err == mongo.ErrNoDocuments || pinNode == nil {
 			ctx.JSON(http.StatusOK, respond.ErrNoPinFound)
 		} else {
 			ctx.JSON(http.StatusOK, respond.ErrServiceError)
@@ -108,7 +108,7 @@ func accessContentDecrypt(ctx *gin.Context) {
 		for _, item := range data.EncryptFiles {
 			pinId := strings.ReplaceAll(item, "metafile://", "")
 			pinNode, err := man.DbAdapter.GetPinByNumberOrId(pinId)
-			if err == nil {
+			if err == nil && pinNode != nil {
 				encryptFiles = append(encryptFiles, pinNode.ContentBody)
 			}
 		}

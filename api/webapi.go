@@ -281,11 +281,17 @@ func content(ctx *gin.Context) {
 	p, err = man.PebbleStore.GetPinById(ctx.Param("number"))
 	if err != nil || p.Id == "" {
 		p1, err1 := man.DbAdapter.GetPinByNumberOrId(ctx.Param("number"))
+		// GetPinByNumberOrId returns (nil, nil) when the pin is unknown;
+		// dereferencing without the nil check panicked this handler (HTTP 500).
+		if p1 == nil {
+			ctx.String(http.StatusNotFound, "fail")
+			return
+		}
 		p = *p1
 		err = err1
 	}
 	if err != nil || p.Id == "" {
-		ctx.String(200, "fail")
+		ctx.String(http.StatusNotFound, "fail")
 		return
 	}
 	if p.ContentType == "application/mp4" {
