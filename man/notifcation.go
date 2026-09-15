@@ -2,6 +2,7 @@ package man
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"manindexer/common"
 	"manindexer/database/mongodb"
@@ -23,6 +24,34 @@ var notifcationPath = map[string]bool{
 	"/protocols/paylike":      true,
 	"/protocols/paycomment":   true,
 	"/protocols/simplebuzz":   true,
+}
+
+// getStringFromMap safely extracts a string value from map[string]interface{}.
+// On-chain pin bodies may carry numbers or booleans where a string is expected
+// (e.g. a paylike pin with a numeric likeTo); a raw type assertion panics there
+// and kills the whole indexer.
+func getStringFromMap(dataMap map[string]interface{}, key string) string {
+	val, ok := dataMap[key]
+	if !ok || val == nil {
+		return ""
+	}
+	switch v := val.(type) {
+	case string:
+		return v
+	case float64:
+		return fmt.Sprintf("%.0f", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case bool:
+		if v {
+			return "1"
+		}
+		return "0"
+	default:
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 func handNotifcation(pinNode *pin.PinInscription) {
@@ -123,7 +152,11 @@ func getDonatePin(pinNode *pin.PinInscription) (toPIN []pin.PinInscription, err 
 	if err != nil {
 		return
 	}
-	to, _ := getPINbyId(dataMap["toPin"].(string))
+	toPinId := getStringFromMap(dataMap, "toPin")
+	if toPinId == "" {
+		return
+	}
+	to, _ := getPINbyId(toPinId)
 	return []pin.PinInscription{to}, nil
 }
 func getPayLikePin(pinNode *pin.PinInscription) (toPIN []pin.PinInscription, err error) {
@@ -138,10 +171,12 @@ func getPayLikePin(pinNode *pin.PinInscription) (toPIN []pin.PinInscription, err
 	if _, ok := dataMap["isLike"]; !ok {
 		return
 	}
-	if dataMap["likeTo"].(string) == "" || dataMap["isLike"].(string) != "1" {
+	likeTo := getStringFromMap(dataMap, "likeTo")
+	isLike := getStringFromMap(dataMap, "isLike")
+	if likeTo == "" || isLike != "1" {
 		return
 	} else {
-		toPINItem, err1 := getPINbyId(dataMap["likeTo"].(string))
+		toPINItem, err1 := getPINbyId(likeTo)
 		if err1 == nil {
 			toPIN = []pin.PinInscription{toPINItem}
 		}
@@ -157,10 +192,11 @@ func getPaycommentPin(pinNode *pin.PinInscription) (toPIN []pin.PinInscription, 
 	if _, ok := dataMap["commentTo"]; !ok {
 		return
 	} else {
-		if dataMap["commentTo"] == nil || dataMap["commentTo"].(string) == "" {
+		commentTo := getStringFromMap(dataMap, "commentTo")
+		if commentTo == "" {
 			return
 		}
-		toPINItem, err1 := getPINbyId(dataMap["commentTo"].(string))
+		toPINItem, err1 := getPINbyId(commentTo)
 		if err1 == nil {
 			toPIN = []pin.PinInscription{toPINItem}
 		}
@@ -176,10 +212,11 @@ func getRepostPin(pinNode *pin.PinInscription) (toPIN []pin.PinInscription, err 
 	if _, ok := dataMap["quotePin"]; !ok {
 		return
 	} else {
-		if dataMap["quotePin"] == nil || dataMap["quotePin"].(string) == "" {
+		quotePin := getStringFromMap(dataMap, "quotePin")
+		if quotePin == "" {
 			return
 		}
-		toPINItem, err1 := getPINbyId(dataMap["quotePin"].(string))
+		toPINItem, err1 := getPINbyId(quotePin)
 		if err1 == nil {
 			toPIN = []pin.PinInscription{toPINItem}
 		}
