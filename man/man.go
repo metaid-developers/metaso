@@ -175,7 +175,7 @@ func InitAdapter(chainType, dbType, test, server string) {
 		}
 		ChainAdapter[chain].InitChain()
 		IndexerAdapter[chain].InitIndexer()
-		bestHeight := ChainAdapter[chain].GetBestHeight()
+		bestHeight := bestHeightWithTimeout(chain, ChainAdapter[chain], bestHeightRPCTimeout)
 		path := fmt.Sprintf("./%s_del_mempool_height.txt", chain)
 		common.InitHeightFile(path, bestHeight)
 	}
@@ -333,7 +333,7 @@ func handleMempoolTransferPin(pinNode *pin.PinInscription) {
 }
 func CheckNewBlock() {
 	for k, chain := range ChainAdapter {
-		bestHeight := chain.GetBestHeight()
+		bestHeight := bestHeightWithTimeout(k, chain, bestHeightRPCTimeout)
 		sk := k + "_del_mempool_height"
 		localLastHeight, err := mongodb.GetSyncLastNumber(sk)
 		if err != nil {
@@ -416,7 +416,7 @@ func getSyncHeight(chainName string, test string) (from, to int64) {
 		// 	return
 		// }
 	}
-	bestHeight := ChainAdapter[chainName].GetBestHeight()
+	bestHeight := bestHeightWithTimeout(chainName, ChainAdapter[chainName], bestHeightRPCTimeout)
 	if MaxHeight[chainName] >= bestHeight || initialHeight > bestHeight {
 		return
 	}

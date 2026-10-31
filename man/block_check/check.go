@@ -40,7 +40,7 @@ func StartCheck() {
 				check.From = h + 1
 			}
 		}
-		check.To = man.ChainAdapter[chain].GetBestHeight()
+		check.To = man.BestHeightWithTimeout(chain)
 		checkChains = append(checkChains, check)
 	}
 	if len(checkChains) <= 0 {
