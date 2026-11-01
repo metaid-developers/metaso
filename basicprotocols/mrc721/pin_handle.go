@@ -83,6 +83,11 @@ func (m721 *Mrc721) PinHandle(pinList []*Mrc721Pin) {
 
 func (m721 *Mrc721) collectionHandle(collectionName string, pinNode *Mrc721Pin, validator Mrc721Validator) (collection *Mrc721CollectionDescPin, err error) {
 	collection, err = validator.Collection(collectionName, pinNode)
+	if err != nil {
+		// 非法 collection_desc(非 create/JSON 非法/字段越界/同名重复):跳过该 pin,游标照常前进。
+		// 此前未判 err 直接解引用 nil collection,单条毒 pin 即可造成整个索引器崩溃循环。
+		return
+	}
 	collection.Address = pinNode.Address
 	collection.CollectionName = collectionName
 	collection.CreateTime = pinNode.Timestamp
