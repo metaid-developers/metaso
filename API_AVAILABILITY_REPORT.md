@@ -256,27 +256,7 @@
 `GET /api/mrc20/tick/AddressBalance`
 用途：指定地址 + tickId 查询余额。
 
-### 3.4 MRC721 API（/api/mrc721）
-
-`GET /api/mrc721/collection/pageList`
-用途：集合分页列表。
-
-`GET /api/mrc721/collection/info`
-用途：集合详情（`name` 或 `pinId`）。
-
-`GET /api/mrc721/collection/items/pageList`
-用途：集合项分页。
-
-`GET /api/mrc721/address/collection`
-用途：地址持有集合列表。
-
-`GET /api/mrc721/address/item`
-用途：地址持有 items。
-
-`GET /api/mrc721/item/info`
-用途：item 详情。
-
-### 3.5 MetaName API（/api/metaname）
+### 3.4 MetaName API（/api/metaname）
 
 `GET /api/metaname/list`
 用途：MetaName 列表。
@@ -284,7 +264,7 @@
 `GET /api/metaname/info`
 用途：MetaName 详情。
 
-### 3.6 MetaSo Social / Settings / FT
+### 3.5 MetaSo Social / Settings / FT
 
 `GET /social/buzz/newest` `recommended` `hot` `search` `info` `follow`
 用途：Buzz 动态、推荐、热度、搜索、详情、关注关系。
@@ -307,7 +287,7 @@
 `GET /metaso/settings/blocked/add|delete`, `/metaso/settings/recommended/add|delete`
 用途：管理写操作（未探测）。
 
-### 3.7 Statistics API（/statistics）
+### 3.6 Statistics API（/statistics）
 
 `GET /statistics/host/metablock/sync-newest`
 用途：MetaBlock 同步进度。
@@ -371,12 +351,6 @@
 |GET|/api/mrc20/address/shovel/list?cursor=0&size=10&tickId=0&address=12ghVWG1yAgNjzXj4mr3qK9DgyornMUikZ|000000|||Timeout|
 |GET|/api/mrc20/shovel/used?cursor=0&size=10&tickId=0&address=12ghVWG1yAgNjzXj4mr3qK9DgyornMUikZ|000000|||Timeout|
 |GET|/api/mrc20/tick/AddressBalance?address=12ghVWG1yAgNjzXj4mr3qK9DgyornMUikZ&tickId=0|404|||Not Found|
-|GET|/api/mrc721/collection/pageList?cousor=0&size=10|200|1|ok|OK|
-|GET|/api/mrc721/collection/info?name=drops genesis card&pinId=a7288d8ad5b6b024e15cbdb520b7009600245869850abb4515a2b90b0fd55933i0|000|||Timeout|
-|GET|/api/mrc721/collection/items/pageList?cousor=0&size=10&pinid=a7288d8ad5b6b024e15cbdb520b7009600245869850abb4515a2b90b0fd55933i0|200|1|ok|OK|
-|GET|/api/mrc721/address/collection?cousor=0&size=10&address=12ghVWG1yAgNjzXj4mr3qK9DgyornMUikZ|200|100|no data found.|OK (business error)|
-|GET|/api/mrc721/address/item?cousor=0&size=10&address=12ghVWG1yAgNjzXj4mr3qK9DgyornMUikZ|200|100|no data found.|OK (business error)|
-|GET|/api/mrc721/item/info?pinId=a7288d8ad5b6b024e15cbdb520b7009600245869850abb4515a2b90b0fd55933i0|200|100|no data found.|OK (business error)|
 |GET|/api/metaname/list?size=10|404|||Not Found|
 |GET|/api/metaname/info?name=|404|||Not Found|
 |GET|/social/buzz/newest?size=10|000|1|ok|Timeout|
