@@ -7,7 +7,6 @@ import (
 	"manindexer/api"
 	"manindexer/basicprotocols/metaname"
 	"manindexer/basicprotocols/metaso"
-	"manindexer/basicprotocols/mrc721"
 	"manindexer/common"
 	"manindexer/database/mongodb"
 	"manindexer/man"
@@ -65,10 +64,6 @@ func main() {
 	if common.ModuleExist("metaname") {
 		mn := metaname.MetaName{}
 		go mn.Synchronization()
-	}
-	if common.ModuleExist("mrc721") {
-		mrc721 := mrc721.Mrc721{}
-		go mrc721.Synchronization()
 	}
 	go mongodb.FixNullMetaIdPinId()
 	go mongodb.RunMempoolPinsSweep(10 * time.Minute)

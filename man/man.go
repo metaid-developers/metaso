@@ -580,10 +580,6 @@ func DoIndexerRun(chainName string, height int64, reIndex bool) (err error) {
 		mrc20List = mrc20List[:0]
 		mrc20TransferPinTx = make(map[string]struct{})
 	}
-	// if len(pinNodeList) > 0 && height >= Mrc20HeightLimit[chainName] {
-	// 	m721 := Mrc721{}
-	// 	m721.PinHandle(pinNodeList)
-	// }
 	//Handle MetaAccess
 	if len(pinNodeList) > 0 {
 		access := MetaAccess{}

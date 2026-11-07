@@ -147,10 +147,6 @@ func (pd *PebbleData) DoIndexerRun(chainName string, height int64, reIndex bool)
 		mrc20TransferPinTx = make(map[string]struct{})
 		log.Println("Mrc20Handle:", time.Since(startTime))
 	}
-	// if len(pinNodeList) > 0 && height >= Mrc20HeightLimit[chainName] {
-	// 	m721 := Mrc721{}
-	// 	m721.PinHandle(pinNodeList)
-	// }
 	//Handle MetaAccess
 	if len(pinNodeList) > 0 {
 		access := MetaAccess{}

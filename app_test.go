@@ -184,11 +184,6 @@ func TestRarityScoreBinary(t *testing.T) {
 
 }
 
-func TestMrc721Save(t *testing.T) {
-	common.InitConfig("./config.toml")
-	man.InitAdapter("btc", "mongo", "1", "1")
-	man.DoIndexerRun("btc", int64(2874040), false)
-}
 func TestMempoolTransfer(t *testing.T) {
 	common.InitConfig("./config.toml")
 	man.InitAdapter("btc", "mongo", "1", "1")
@@ -277,11 +272,6 @@ func TestPopValue(t *testing.T) {
 	decimalNum1, _ = octalStringToDecimal(octalStr1, 4, 10000)
 	fmt.Println("btc pop:", octalStr1)
 	fmt.Println("BTC", len("000000000000000000000000000000000"), "0，Value=", *decimalNum1)
-}
-func TestMrc721SysnAddress(t *testing.T) {
-	//mrc721.SyncAddress()
-	ip, err := metaso.GetExternalIP()
-	fmt.Println(ip, err)
 }
 func TestPevCount(t *testing.T) {
 	common.InitConfig("./config.toml")
