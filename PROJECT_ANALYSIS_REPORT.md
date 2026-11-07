@@ -2,7 +2,7 @@
 
 ## 1. 项目意图与目标
 
-本项目是 MetaSo Man Indexer：面向 MetaID 协议的链上社交数据索引与检索服务。其核心目标是从 UTXO 链（BTC/MVC）中解析并索引 MetaID/MetaSo 相关 Pin 数据，将其结构化存储，并通过 HTTP API 与 Web 浏览器界面对外提供检索、社交、资产与统计服务。项目同时支持 mempool 实时更新、协议扩展（Buzz/Follow/MRC20/MRC721/MetaAccess/MetaName 等）、以及多数据库后端（MongoDB/Pebble/PostgreSQL）。
+本项目是 MetaSo Man Indexer：面向 MetaID 协议的链上社交数据索引与检索服务。其核心目标是从 UTXO 链（BTC/MVC）中解析并索引 MetaID/MetaSo 相关 Pin 数据，将其结构化存储，并通过 HTTP API 与 Web 浏览器界面对外提供检索、社交、资产与统计服务。项目同时支持 mempool 实时更新、协议扩展（Buzz/Follow/MRC20/MetaAccess/MetaName 等）、以及多数据库后端（MongoDB/Pebble/PostgreSQL）。
 
 ## 2. 主要功能模块
 
@@ -19,7 +19,6 @@
 ### 2.4 协议与业务模块
 - `basicprotocols/metaso`：Buzz 社交数据、推荐/热度、搜索、关注关系、统计指标、PEV。
 - `basicprotocols/metaname`：MetaName 索引与查询。
-- `basicprotocols/mrc721`：NFT 协议索引与查询。
 - `man/mrc20*`：MRC20 协议解析、余额/历史处理。
 - `man/meta_access*`：MetaAccess 访问控制与解密。
 
@@ -41,7 +40,7 @@
 1. 读取 `config.toml` + CLI 参数（`common.InitConfig`）。
 2. 初始化同步数据库与适配器（`common.InitSyncDB`, `man.InitAdapter`）。
 3. 若 `server=1`，启动 HTTP 服务（`api.Start`）。
-4. 启动 MetaSo/MetaName/MRC721 等模块同步与后台任务。
+4. 启动 MetaSo/MetaName 等模块同步与后台任务。
 5. 启动 ZMQ 监听（mempool 实时数据）。
 6. 主循环：区块同步索引 + mempool 清理 + PEV 同步。
 
@@ -127,14 +126,6 @@ Outputs: HTML。
 
 `GET /mrc20/history/:id/:page` MRC20 历史页面。
 Inputs: `id`(path, string), `page`(path, int)。
-Outputs: HTML。
-
-`GET /mrc721/:page` MRC721 列表页面。
-Inputs: `page`(path, int)。
-Outputs: HTML。
-
-`GET /mrc721/item/list/:name/:page` MRC721 集合项列表。
-Inputs: `name`(path, string), `page`(path, int)。
 Outputs: HTML。
 
 `GET /swagger/*any` Swagger UI。
@@ -347,33 +338,7 @@ Outputs: `data.list`, `data.total`。
 Inputs: `address`(query,string), `tickId`(query,string)。
 Outputs: `data` 为余额数值。
 
-### 4.6 MRC721 API（/api/mrc721）
-
-`GET /api/mrc721/collection/pageList`
-Inputs: `cousor`(query,int), `size`(query,int)。
-Outputs: `data.list`, `data.total`。
-
-`GET /api/mrc721/collection/info`
-Inputs: `name`(query,string) 或 `pinId`(query,string) 二选一。
-Outputs: 集合详情。
-
-`GET /api/mrc721/collection/items/pageList`
-Inputs: `cousor`(query,int), `size`(query,int), `pinid`(query,string,可选)。
-Outputs: `data.list`, `data.total`。
-
-`GET /api/mrc721/address/collection`
-Inputs: `cousor`(query,int), `size`(query,int), `address`(query,string)。
-Outputs: `data.list`, `data.total`。
-
-`GET /api/mrc721/address/item`
-Inputs: `cousor`(query,int), `size`(query,int), `address`(query,string), `pinId`(query,string,可选)。
-Outputs: `data.list`, `data.total`。
-
-`GET /api/mrc721/item/info`
-Inputs: `pinId`(query,string)。
-Outputs: Item 详情。
-
-### 4.7 MetaName API（/api/metaname）
+### 4.6 MetaName API（/api/metaname）
 
 `GET /api/metaname/list`
 Inputs: `size`(query,int), `lastId`(query,string,可选)。
@@ -383,7 +348,7 @@ Outputs: `data.list`, `data.total`, `data.lastId`。
 Inputs: `name`(query,string)。
 Outputs: `data.info`, `data.history`。
 
-### 4.8 MetaSo 社交与设置 API（模块开启时可用）
+### 4.7 MetaSo 社交与设置 API（模块开启时可用）
 
 `GET /social/buzz/newest`
 Inputs: `lastId`(query,string), `size`(query,int), `metaid`(query,string,可选), `followed`(query,string,true/false)。
@@ -461,7 +426,7 @@ Outputs: 成功响应。
 Inputs: `authorAddress`(query,string)。
 Outputs: 成功响应。
 
-### 4.9 统计 API（/statistics）
+### 4.8 统计 API（/statistics）
 
 `GET /statistics/host/metablock/sync-newest`
 Inputs: 无。

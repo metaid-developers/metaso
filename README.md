@@ -41,7 +41,6 @@ This indexer is specifically optimized for indexing the following MetaSo protoco
 - **PayComment Protocol**: Comments and replies
 - **Follow Protocol**: User follow relationships
 - **MRC20 Protocol**: Fungible tokens (e.g., SPACE)
-- **MRC721 Protocol**: NFT assets
 
 ## Quick Start
 

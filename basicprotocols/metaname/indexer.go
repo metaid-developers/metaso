@@ -216,7 +216,6 @@ func (metaName *MetaName) syncTransfer() (err error) {
 		return
 	}
 	var lastId primitive.ObjectID
-	//mrc721.PinHandle(pinList)
 	transferMap := make(map[string]string)
 	var pinList []string
 	for _, doc := range dataList {
