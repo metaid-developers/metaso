@@ -14,3 +14,4 @@ sync_data.db
 pebble_data/
 config.toml
 config_regtest.toml
+.playwright-mcp/
