@@ -1,5 +1,7 @@
 # Production Nginx Feed Cache
 
+> 2026-10-23 更新：网关已从 `47.52.110.56`（已释放）整体迁至 mvc-web `8.217.194.54`，nginx 同为 Docker 容器、配置同样挂载在宿主 `/mnt/nginx`，本文描述的热缓存配置已随 `60-migrated-showgw.conf` 迁移。下文为历史记录。
+
 ## 2026-05-25
 
 The `www.show.now` gateway on `47.52.110.56` runs Nginx inside the `nginx` Docker container. The active config is mounted from `/mnt/nginx`.
